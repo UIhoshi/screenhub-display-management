@@ -1,6 +1,8 @@
-# ScreenHub Display Management
+<h1 align="center">ScreenHub Display Management</h1>
 
-> 画面再生、リモート制御、オフライン配備、安定したクライアント / サーバー運用のための LAN ベース Electron ディスプレイ管理システム。
+<p align="center">
+  画面再生、リモート制御、オフライン配備、安定したクライアント / サーバー運用のための LAN ベース Electron ディスプレイ管理システム。
+</p>
 
 [![Release](https://img.shields.io/github/v/release/UIhoshi/screenhub-display-management?display_name=tag&style=for-the-badge)](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1)
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge)
@@ -8,7 +10,11 @@
 ![UI](https://img.shields.io/badge/readme-en%20%7C%20zh%20%7C%20ja-b91c1c?style=for-the-badge)
 ![Mode](https://img.shields.io/badge/deployment-LAN%20%2F%20Offline-orange?style=for-the-badge)
 
-[English](./README.md) | [中文](./README.zh-CN.md) | [日本語](./README.ja.md)
+<p align="center">
+  <a href="./README.md">English</a> |
+  <a href="./README.zh-CN.md">中文</a> |
+  <a href="./README.ja.md">日本語</a>
+</p>
 
 ## 概要
 
