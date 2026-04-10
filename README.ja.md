@@ -4,11 +4,13 @@
   画面再生、リモート制御、オフライン配備、安定したクライアント / サーバー運用のための LAN ベース Electron ディスプレイ管理システム。
 </p>
 
-[![Release](https://img.shields.io/github/v/release/UIhoshi/screenhub-display-management?display_name=tag&style=for-the-badge)](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1)
-![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge)
-![Stack](https://img.shields.io/badge/stack-Electron%20%7C%20Node.js-3C873A?style=for-the-badge)
-![UI](https://img.shields.io/badge/readme-en%20%7C%20zh%20%7C%20ja-b91c1c?style=for-the-badge)
-![Mode](https://img.shields.io/badge/deployment-LAN%20%2F%20Offline-orange?style=for-the-badge)
+<p align="center">
+  <a href="https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1"><img src="https://img.shields.io/github/v/release/UIhoshi/screenhub-display-management?display_name=tag&style=for-the-badge" alt="Release"></a>
+  <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge" alt="Platform">
+  <img src="https://img.shields.io/badge/stack-Electron%20%7C%20Node.js-3C873A?style=for-the-badge" alt="Stack">
+  <img src="https://img.shields.io/badge/readme-en%20%7C%20zh%20%7C%20ja-b91c1c?style=for-the-badge" alt="Readme Languages">
+  <img src="https://img.shields.io/badge/deployment-LAN%20%2F%20Offline-orange?style=for-the-badge" alt="Deployment">
+</p>
 
 <p align="center">
   <a href="./README.md">English</a> |
