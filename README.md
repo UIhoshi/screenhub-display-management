@@ -61,6 +61,39 @@ If you are reading this repository for implementation or maintenance work, start
 - [`PROJECT_GUIDE_AND_README/status/03_V1_0_0_STABLE_BASELINE.md`](./PROJECT_GUIDE_AND_README/status/03_V1_0_0_STABLE_BASELINE.md)
 - [`PROJECT_GUIDE_AND_README/history/L2_MILESTONE_LOGS.md`](./PROJECT_GUIDE_AND_README/history/L2_MILESTONE_LOGS.md)
 
+## Quick Start
+
+### Use the release installers
+
+If your goal is testing or deployment on Windows machines:
+
+1. Download the two installer assets from the [`v1.0.1` release](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1).
+2. Install the server on the management machine.
+3. Install the client on the display machine.
+4. Start the server and open the admin page.
+5. Start the client and wait for pairing / connection.
+
+Important:
+
+- keep only one client form on the same Windows machine
+- do not keep an old portable client and an installed client at the same time
+- if you are validating new behavior, make sure you are not launching an older unpacked copy by mistake
+
+### Use the source code
+
+If your goal is development or verification from source:
+
+1. Install dependencies in both `client/` and `server/`.
+2. Review the project docs in `PROJECT_GUIDE_AND_README/` before making changes.
+3. Build and validate unpacked artifacts first.
+4. Move to final installer verification only when you are testing packaging, install behavior, upgrade flow, or formal delivery.
+
+### Main directories
+
+- `client/`: display client source and packaging config
+- `server/`: management server source and packaging config
+- `PROJECT_GUIDE_AND_README/`: architecture, deployment, history, and operating documentation
+
 ## Delivery Model
 
 This project follows a two-track verification model:
