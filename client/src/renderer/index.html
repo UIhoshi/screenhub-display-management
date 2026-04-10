@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advertising Screen Client</title>
+  <style>
+    :root {
+      --bg: #0b0e12;
+      --text: #f7f1e9;
+      --muted: rgba(247, 241, 233, 0.72);
+      --accent: #ff7140;
+      --accent-soft: rgba(255, 113, 64, 0.16);
+      --glass: rgba(18, 22, 28, 0.56);
+      --glass-line: rgba(255, 255, 255, 0.08);
+      --progress: 0%;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      color: var(--text);
+      font-family: "Segoe UI", "PingFang SC", "Hiragino Sans", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(255, 113, 64, 0.22), transparent 26%),
+        radial-gradient(circle at left bottom, rgba(121, 214, 196, 0.14), transparent 24%),
+        linear-gradient(180deg, #0f141a 0%, #090b0f 100%);
+    }
+    #app {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: transparent;
+    }
+    .progress-shell {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      z-index: 40;
+      background: rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+      opacity: 0;
+      transition: opacity 220ms ease;
+    }
+    .progress-shell.visible {
+      opacity: 1;
+    }
+    .progress-bar {
+      width: var(--progress);
+      height: 100%;
+      background: linear-gradient(90deg, #ff7140 0%, #ffd26f 100%);
+      box-shadow: 0 0 18px rgba(255, 113, 64, 0.42);
+      transition: width 220ms ease;
+    }
+    .stage {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 800ms ease;
+      will-change: opacity;
+    }
+    .stage.active {
+      opacity: 1;
+    }
+    .stage.leaving {
+      opacity: 0;
+    }
+    .media,
+    .text-layer,
+    .html-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
+      border: 0;
+    }
+    .media.active,
+    .text-layer.active,
+    .html-layer.active {
+      display: block;
+    }
+    .media {
+      object-fit: cover;
+      background: #000;
+    }
+    .text-layer {
+      overflow: auto;
+      padding: 72px;
+      font-size: 36px;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background:
+        radial-gradient(circle at top right, rgba(255, 113, 64, 0.16), transparent 24%),
+        linear-gradient(180deg, rgba(14, 16, 20, 0.95), rgba(10, 11, 14, 0.98));
+    }
+    .html-layer {
+      background: #fff;
+    }
+    .overlay {
+      position: absolute;
+      left: 28px;
+      bottom: 24px;
+      z-index: 50;
+      min-width: min(520px, calc(100vw - 56px));
+      max-width: min(720px, calc(100vw - 56px));
+      padding: 16px 18px;
+      border-radius: 20px;
+      background: var(--glass);
+      backdrop-filter: blur(26px) saturate(180%);
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+      font-size: 14px;
+      color: var(--muted);
+      transition: opacity 220ms ease, transform 220ms ease;
+    }
+    .overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(14px);
+    }
+    .overlay.menu-open {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+    .overlay strong {
+      display: block;
+      color: var(--text);
+      margin-bottom: 8px;
+      font-size: 15px;
+      letter-spacing: 0.02em;
+    }
+    .status-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .status-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .status-text span {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .download-chip {
+      flex: 0 0 auto;
+      max-width: 240px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: none;
+    }
+    .download-chip.visible {
+      display: block;
+    }
+    .lang-switch,
+    .overlay-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 7px 12px;
+      background: rgba(255, 255, 255, 0.11);
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+    }
+    button.active {
+      background: var(--accent);
+      color: #fff;
+    }
+    button.danger {
+      background: rgba(255, 113, 64, 0.2);
+    }
+    .playback-menu-trigger {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      z-index: 60;
+      padding: 10px 14px;
+      background: rgba(18, 22, 28, 0.42);
+      backdrop-filter: blur(16px) saturate(160%);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-10px);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+    .playback-menu-trigger.visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+    body.cursor-hidden,
+    body.cursor-hidden * {
+      cursor: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="download-progress" class="progress-shell">
+      <div class="progress-bar"></div>
+    </div>
+    <div class="stage active" data-stage="0">
+      <img class="media stage-image" alt="ad image">
+      <video class="media stage-video" muted autoplay playsinline></video>
+      <div class="text-layer stage-text"></div>
+      <iframe class="html-layer stage-html" title="text content"></iframe>
+    </div>
+    <div class="stage" data-stage="1">
+      <img class="media stage-image" alt="ad image">
+      <video class="media stage-video" muted autoplay playsinline></video>
+      <div class="text-layer stage-text"></div>
+      <iframe class="html-layer stage-html" title="text content"></iframe>
+    </div>
+    <button id="playback-menu-trigger" class="playback-menu-trigger" type="button">Menu</button>
+    <div class="overlay">
+      <strong id="app-title">Advertising Screen Client</strong>
+      <div class="status-row">
+        <div class="status-text">
+          <span id="status">Waiting for server</span>
+        </div>
+        <div id="download-chip" class="download-chip"></div>
+      </div>
+      <div class="lang-switch">
+        <button id="lang-zh" type="button">中</button>
+        <button id="lang-en" type="button">EN</button>
+        <button id="lang-ja" type="button">日</button>
+      </div>
+      <div class="overlay-actions">
+        <button id="quit-button" class="danger" type="button">Exit</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const appTitleEl = document.getElementById('app-title');
+    const quitButton = document.getElementById('quit-button');
+    const playbackMenuTrigger = document.getElementById('playback-menu-trigger');
+    const overlayEl = document.querySelector('.overlay');
+    const progressShellEl = document.getElementById('download-progress');
+    const downloadChipEl = document.getElementById('download-chip');
+    const stageEls = Array.from(document.querySelectorAll('.stage')).map((root, index) => ({
+      index,
+      root,
+      image: root.querySelector('.stage-image'),
+      video: root.querySelector('.stage-video'),
+      text: root.querySelector('.stage-text'),
+      html: root.querySelector('.stage-html'),
+    }));
+    const langButtons = {
+      zh: document.getElementById('lang-zh'),
+      en: document.getElementById('lang-en'),
+      ja: document.getElementById('lang-ja'),
+    };
+
+    const locales = {
+      en: {
+        appTitle: 'Advertising Screen Client',
+        waiting: 'Waiting for server',
+        discovery: 'Discovery',
+        server: 'Server',
+        approved: 'Approved',
+        retry: 'Retry',
+        auth: 'Auth',
+        pairingCode: 'Pairing Code',
+        mode: 'Mode',
+        maintenance: 'Maintenance',
+        quit: 'Exit',
+        chooseFolder: 'Media Folder',
+        mediaPath: 'Media Path',
+        menu: 'Menu',
+        langZh: 'Chinese',
+        langEn: 'English',
+        langJa: 'Japanese',
+        downloading: 'Downloading',
+        completed: 'Completed',
+      },
+      zh: {
+        appTitle: '广告机客户端',
+        waiting: '等待服务器连接...',
+        discovery: '发现状态',
+        server: '服务器',
+        approved: '已授权',
+        retry: '重试倒计时',
+        auth: '认证状态',
+        pairingCode: '配对码',
+        mode: '播放模式',
+        maintenance: '维护状态',
+        quit: '退出',
+        chooseFolder: '素材目录',
+        mediaPath: '素材目录',
+        menu: '菜单',
+        langZh: '中文',
+        langEn: '英文',
+        langJa: '日文',
+        downloading: '下载中',
+        completed: '完成',
+      },
+      ja: {
+        appTitle: '広告配信クライアント',
+        waiting: 'サーバー接続を待機中...',
+        discovery: '検出状態',
+        server: 'サーバー',
+        approved: '承認済み',
+        retry: '再試行まで',
+        auth: '認証状態',
+        pairingCode: 'ペアリングコード',
+        mode: '再生モード',
+        maintenance: 'メンテナンス',
+        quit: '終了',
+        chooseFolder: '素材フォルダー',
+        mediaPath: '素材フォルダー',
+        menu: 'メニュー',
+        langZh: '中国語',
+        langEn: '英語',
+        langJa: '日本語',
+        downloading: 'ダウンロード中',
+        completed: '完了',
+      },
+    };
+
+    function resolveLanguage() {
+      const storedLang = window.localStorage.getItem('ad_client_lang');
+      if (storedLang && locales[storedLang]) return storedLang;
+      const sysLang = String(navigator.language || '').toLowerCase();
+      if (sysLang.includes('zh')) return 'zh';
+      if (sysLang.includes('ja')) return 'ja';
+      return 'en';
+    }
+
+    let currentLang = resolveLanguage();
+    const t = (key) => locales[currentLang]?.[key] || locales.en[key] || key;
+    const logPlayerEvent = (payload) => {
+      if (window.playerAPI?.logEvent) {
+        window.playerAPI.logEvent(payload);
+      }
+    };
+
+    let playbackMode = 'loop';
+    let playlist = [];
+    let currentIndex = 0;
+    let rotationTimer = null;
+    let pendingPayload = null;
+    let playbackSessionId = 0;
+    let latestStatus = {};
+    let menuPinned = false;
+    let activeStageIndex = 0;
+    let activeFolderState = null;
+    const folderPlaybackCache = new Map();
+    let topLevelRandomState = { order: [], cursor: 0 };
+    const CURSOR_HIDE_DELAY_MS = 1500;
+    let cursorHideTimer = null;
+
+    function getStage(index) {
+      return stageEls[index % stageEls.length];
+    }
+
+    function getIdleStage() {
+      return getStage((activeStageIndex + 1) % stageEls.length);
+    }
+
+    function getStableItemKey(item) {
+      if (!item) return '';
+      return [
+        item.type || '',
+        item.path || '',
+        item.originalSrc || '',
+        item.src || '',
+        item.md5 || '',
+        item.durationMs || '',
+      ].join('|');
+    }
+
+    function isPlaybackInterruptionError(error) {
+      const message = String(error?.message || '').toLowerCase();
+      return error?.name === 'AbortError'
+        || message.includes('interrupted by a call to pause')
+        || message.includes('the fetching process for the media resource was aborted');
+    }
+
+    function formatBytes(bytes) {
+      const size = Number(bytes || 0);
+      if (!Number.isFinite(size) || size <= 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let value = size;
+      let index = 0;
+      while (value >= 1024 && index < units.length - 1) {
+        value /= 1024;
+        index += 1;
+      }
+      return `${value >= 100 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
+    }
+
+    function getPrimaryDownloadStatus() {
+      const entries = Object.values(latestStatus.downloadStatus || {}).filter(Boolean);
+      entries.sort((left, right) => {
+        const leftPriority = left.scope === 'push' ? 2 : 1;
+        const rightPriority = right.scope === 'push' ? 2 : 1;
+        if (rightPriority !== leftPriority) return rightPriority - leftPriority;
+        return (Date.parse(right.updatedAt || 0) || 0) - (Date.parse(left.updatedAt || 0) || 0);
+      });
+      return entries[0] || null;
+    }
+
+    function updateProgressVisual() {
+      const status = getPrimaryDownloadStatus();
+      const visible = status && ['downloading', 'retrying'].includes(String(status.state || '').toLowerCase());
+      const percent = typeof status?.percent === 'number' ? Math.max(0, Math.min(100, status.percent)) : 0;
+      progressShellEl.classList.toggle('visible', visible);
+      document.documentElement.style.setProperty('--progress', `${percent}%`);
+
+      if (!status) {
+        downloadChipEl.classList.remove('visible');
+        downloadChipEl.textContent = '';
+        return;
+      }
+
+      const detail = [
+        status.fileName || '-',
+        typeof status.percent === 'number' ? `${status.percent.toFixed(1)}%` : status.state || '',
+      ];
+      if (typeof status.downloadedBytes === 'number') {
+        detail.push(`${formatBytes(status.downloadedBytes)} / ${formatBytes(status.totalBytes || 0)}`);
+      }
+      if (typeof status.bytesPerSecond === 'number' && status.bytesPerSecond > 0) {
+        detail.push(`${formatBytes(status.bytesPerSecond)}/s`);
+      }
+      downloadChipEl.textContent = detail.join(' | ');
+      downloadChipEl.classList.toggle('visible', Boolean(downloadChipEl.textContent));
+    }
+
+    function updateOverlayVisibility() {
+      const isPlaying = playlist.length > 0 && getStage(activeStageIndex).root.classList.contains('active');
+      overlayEl.classList.toggle('hidden', isPlaying && !menuPinned);
+      overlayEl.classList.toggle('menu-open', menuPinned);
+      playbackMenuTrigger.classList.toggle('visible', isPlaying && !menuPinned && Boolean(latestStatus.__showMenuTrigger));
+      syncCursorVisibility();
+    }
+
+    function clearCursorHideTimer() {
+      if (cursorHideTimer) {
+        window.clearTimeout(cursorHideTimer);
+        cursorHideTimer = null;
+      }
+    }
+
+    function shouldAutoHideCursor() {
+      const isPlaying = playlist.length > 0 && getStage(activeStageIndex).root.classList.contains('active');
+      return isPlaying && !menuPinned;
+    }
+
+    function setCursorVisibility(visible) {
+      document.body.classList.toggle('cursor-hidden', !visible);
+    }
+
+    function hideCursorNow() {
+      if (shouldAutoHideCursor()) {
+        setCursorVisibility(false);
+      }
+    }
+
+    function scheduleCursorHide() {
+      clearCursorHideTimer();
+      setCursorVisibility(true);
+      if (!shouldAutoHideCursor()) {
+        return;
+      }
+      cursorHideTimer = window.setTimeout(() => {
+        hideCursorNow();
+      }, CURSOR_HIDE_DELAY_MS);
+    }
+
+    function syncCursorVisibility() {
+      if (!shouldAutoHideCursor()) {
+        clearCursorHideTimer();
+        setCursorVisibility(true);
+        return;
+      }
+      scheduleCursorHide();
+    }
+
+    function renderLanguage() {
+      appTitleEl.textContent = t('appTitle');
+      langButtons.zh.textContent = t('langZh');
+      langButtons.en.textContent = t('langEn');
+      langButtons.ja.textContent = t('langJa');
+      quitButton.textContent = t('quit');
+      chooseFolderButton.textContent = t('chooseFolder');
+      playbackMenuTrigger.textContent = t('menu');
+      Object.entries(langButtons).forEach(([lang, button]) => {
+        button.classList.toggle('active', lang === currentLang);
+      });
+      showStatus(latestStatus);
+      updateOverlayVisibility();
+    }
+
+    function resetStage(stage) {
+      stage.image.classList.remove('active');
+      stage.video.classList.remove('active');
+      stage.text.classList.remove('active');
+      stage.html.classList.remove('active');
+      stage.image.onerror = null;
+      stage.image.onload = null;
+      stage.video.onerror = null;
+      stage.video.onloadedmetadata = null;
+      stage.video.oncanplay = null;
+      stage.video.onplaying = null;
+      stage.video.onended = null;
+      stage.video.pause();
+      stage.image.removeAttribute('src');
+      stage.video.removeAttribute('src');
+      stage.text.textContent = '';
+      stage.html.src = 'about:blank';
+      stage.video.load();
+    }
+
+    function clearPlayback() {
+      playbackSessionId += 1;
+      clearTimeout(rotationTimer);
+      activeFolderState = null;
+      topLevelRandomState = { order: [], cursor: 0 };
+      stageEls.forEach((stage) => {
+        stage.root.classList.remove('active', 'leaving');
+        resetStage(stage);
+      });
+      activeStageIndex = 0;
+      updateOverlayVisibility();
+      syncCursorVisibility();
+    }
+
+    function scheduleNext(durationMs) {
+      clearTimeout(rotationTimer);
+      rotationTimer = setTimeout(() => {
+        advancePlaylist();
+      }, durationMs);
+    }
+
+    function activateStage(nextStage) {
+      const previousStage = getStage(activeStageIndex);
+      if (previousStage !== nextStage) {
+        previousStage.root.classList.remove('active');
+        previousStage.root.classList.add('leaving');
+        setTimeout(() => {
+          previousStage.root.classList.remove('leaving');
+          resetStage(previousStage);
+        }, 850);
+      }
+      nextStage.root.classList.add('active');
+      activeStageIndex = nextStage.index;
+      updateOverlayVisibility();
+    }
+
+    function applyQueuedPayloadIfAny() {
+      if (!pendingPayload) return false;
+      const payload = pendingPayload;
+      pendingPayload = null;
+      applyPlaybackPayload(payload);
+      return true;
+    }
+
+    function isFolderStateActive() {
+      return activeFolderState && Array.isArray(activeFolderState.items) && activeFolderState.items.length > 0;
+    }
+
+    function getCurrentPlayableItem() {
+      if (isFolderStateActive()) {
+        return activeFolderState.items[activeFolderState.index] || null;
+      }
+      return playlist[currentIndex] || null;
+    }
+
+    function getFolderStateCacheKey(item) {
+      return `${String(item?.path || '')}|${String(item?.folderPlayMode || 'sequence')}`;
+    }
+
+    function shuffleItems(items) {
+      const shuffled = [...items];
+      for (let index = shuffled.length - 1; index > 0; index -= 1) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+      }
+      return shuffled;
+    }
+
+    function createTopLevelRandomOrder(previousIndex = null) {
+      const shuffled = shuffleItems(playlist.map((_, index) => index));
+      if (previousIndex !== null && shuffled.length > 1 && shuffled[0] === previousIndex) {
+        shuffled.push(shuffled.shift());
+      }
+      return shuffled;
+    }
+
+    function resetTopLevelRandomState(previousIndex = null) {
+      if (playbackMode !== 'random' || !playlist.length) {
+        topLevelRandomState = { order: [], cursor: 0 };
+        return;
+      }
+      topLevelRandomState = {
+        order: createTopLevelRandomOrder(previousIndex),
+        cursor: 0,
+      };
+    }
+
+    function consumeNextRandomTopLevelIndex() {
+      if (playbackMode !== 'random' || !playlist.length) {
+        return -1;
+      }
+      if (!topLevelRandomState.order.length || topLevelRandomState.cursor >= topLevelRandomState.order.length) {
+        resetTopLevelRandomState(currentIndex);
+      }
+      const nextIndex = topLevelRandomState.order[topLevelRandomState.cursor];
+      topLevelRandomState.cursor += 1;
+      return typeof nextIndex === 'number' ? nextIndex : -1;
+    }
+
+    function primeFolderPlaybackState(item) {
+      if (!item || item.type !== 'folder' || !item.path) return null;
+      const cacheKey = getFolderStateCacheKey(item);
+      if (!folderPlaybackCache.has(cacheKey)) {
+        folderPlaybackCache.set(cacheKey, (async () => {
+          const folderItems = Array.isArray(item.entries) && item.entries.length
+            ? item.entries
+            : await window.playerAPI.listMediaFolder(item.path);
+          const normalizedItems = folderItems.map((entry) => ({
+            ...entry,
+            originalSrc: entry.originalSrc || entry.src,
+            durationMs: entry.type === 'video' ? undefined : (item.durationMs || 5000),
+          }));
+          return item.folderPlayMode === 'random' ? shuffleItems(normalizedItems) : normalizedItems;
+        })().catch((error) => {
+          folderPlaybackCache.delete(cacheKey);
+          throw error;
+        }));
+      }
+      return folderPlaybackCache.get(cacheKey);
+    }
+
+    async function buildFolderPlaybackState(item) {
+      const normalizedItems = await (primeFolderPlaybackState(item) || window.playerAPI.listMediaFolder(item.path));
+      return {
+        path: item.path,
+        playMode: item.folderPlayMode || 'sequence',
+        items: normalizedItems,
+        index: 0,
+      };
+    }
+
+    function prewarmUpcomingFolder() {
+      if (!playlist.length) return;
+      const nextIndex = playbackMode === 'single'
+        ? 0
+        : playbackMode === 'random'
+          ? -1
+          : (currentIndex + 1) % playlist.length;
+      if (nextIndex < 0) return;
+      const nextItem = playlist[nextIndex];
+      if (nextItem?.type === 'folder') {
+        primeFolderPlaybackState(nextItem);
+      }
+    }
+
+    function getNextTopLevelIndex() {
+      if (!playlist.length) return -1;
+      if (playbackMode === 'single') return 0;
+      if (playbackMode === 'sequence' && currentIndex >= playlist.length - 1) return -1;
+      if (playbackMode === 'random') {
+        return consumeNextRandomTopLevelIndex();
+      }
+      return (currentIndex + 1) % playlist.length;
+    }
+
+    function advancePlaylist() {
+      if (applyQueuedPayloadIfAny()) return;
+      if (isFolderStateActive()) {
+        if (activeFolderState.index >= activeFolderState.items.length - 1) {
+          activeFolderState = null;
+        } else {
+          activeFolderState.index = (activeFolderState.index + 1) % activeFolderState.items.length;
+          playCurrent();
+          return;
+        }
+      }
+      if (!playlist.length) {
+        updateOverlayVisibility();
+        return;
+      }
+      const nextIndex = getNextTopLevelIndex();
+      if (nextIndex < 0) {
+        clearTimeout(rotationTimer);
+        return;
+      }
+      currentIndex = nextIndex;
+      playCurrent();
+    }
+
+    async function playCurrent() {
+      if (!playlist.length) return;
+
+      const rootItem = playlist[currentIndex];
+      if (rootItem?.type !== 'folder') {
+        activeFolderState = null;
+      }
+      if (rootItem?.type === 'folder' && (!activeFolderState || activeFolderState.path !== rootItem.path)) {
+        try {
+          activeFolderState = await buildFolderPlaybackState(rootItem);
+          if (!activeFolderState.items.length) {
+            activeFolderState = null;
+            advancePlaylist();
+            return;
+          }
+        } catch (error) {
+          activeFolderState = null;
+          window.playerAPI.reportError({
+            type: 'FOLDER_SCAN_ERROR',
+            path: rootItem.path,
+            message: error?.message || 'Failed to scan local media folder',
+          });
+          advancePlaylist();
+          return;
+        }
+      }
+
+      const item = getCurrentPlayableItem();
+      if (!item) {
+        advancePlaylist();
+        return;
+      }
+      const sessionId = ++playbackSessionId;
+      const targetStage = getIdleStage();
+      const videoStartTimeout = { timer: null };
+      resetStage(targetStage);
+
+      const reportError = (error) => {
+        if (sessionId !== playbackSessionId || isPlaybackInterruptionError(error)) {
+          return;
+        }
+        clearTimeout(videoStartTimeout.timer);
+        window.playerAPI.reportError({
+          type: 'MEDIA_ERROR',
+          src: item.src,
+          originalSrc: item.originalSrc,
+          md5: item.md5,
+          message: error?.message || 'Media playback failed',
+        });
+        advancePlaylist();
+      };
+
+      if (item.type === 'video') {
+        targetStage.video.src = item.src;
+        targetStage.video.classList.add('active');
+        targetStage.video.onerror = reportError;
+        targetStage.video.onloadedmetadata = () => {
+          logPlayerEvent({
+            type: 'VIDEO_METADATA',
+            src: item.src,
+            originalSrc: item.originalSrc,
+            durationSeconds: Number.isFinite(targetStage.video.duration) ? targetStage.video.duration : null,
+            width: targetStage.video.videoWidth || null,
+            height: targetStage.video.videoHeight || null,
+          });
+        };
+        targetStage.video.oncanplay = () => {
+          logPlayerEvent({
+            type: 'VIDEO_CAN_PLAY',
+            src: item.src,
+            originalSrc: item.originalSrc,
+            readyState: targetStage.video.readyState,
+          });
+          activateStage(targetStage);
+        };
+        targetStage.video.onplaying = () => {
+          clearTimeout(videoStartTimeout.timer);
+          logPlayerEvent({
+            type: 'VIDEO_PLAYING',
+            src: item.src,
+            originalSrc: item.originalSrc,
+            currentTime: targetStage.video.currentTime,
+          });
+        };
+        targetStage.video.onended = () => {
+          advancePlaylist();
+        };
+        videoStartTimeout.timer = setTimeout(() => {
+          reportError(new Error('Video did not reach playing state within 5 seconds'));
+        }, 5000);
+        const playPromise = targetStage.video.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch(reportError);
+        }
+        prewarmUpcomingFolder();
+        return;
+      }
+
+      if (item.type === 'text') {
+        const sourcePath = String(item.originalSrc || item.src || '').toLowerCase();
+        if (sourcePath.endsWith('.html') || sourcePath.endsWith('.htm')) {
+          targetStage.html.src = item.src;
+          targetStage.html.classList.add('active');
+          activateStage(targetStage);
+          scheduleNext(item.durationMs || 5000);
+          prewarmUpcomingFolder();
+          return;
+        }
+        try {
+          const textContent = await window.playerAPI.readTextContent(item.src);
+          if (sessionId !== playbackSessionId) return;
+          targetStage.text.textContent = textContent;
+          targetStage.text.classList.add('active');
+          activateStage(targetStage);
+          scheduleNext(item.durationMs || 5000);
+          prewarmUpcomingFolder();
+          return;
+        } catch (error) {
+          reportError(error);
+          return;
+        }
+      }
+
+      targetStage.image.src = item.src;
+      targetStage.image.onerror = reportError;
+      targetStage.image.onload = () => activateStage(targetStage);
+      targetStage.image.classList.add('active');
+      if (targetStage.image.complete) {
+        activateStage(targetStage);
+      }
+      scheduleNext(item.durationMs || 5000);
+      prewarmUpcomingFolder();
+    }
+
+    function applyPlaybackPayload(payload) {
+      const nextPlaylist = Array.isArray(payload.items) ? payload.items : [];
+      const currentStageRoot = getStage(activeStageIndex).root;
+      const currentItemKey = getStableItemKey(playlist[currentIndex]);
+      const nextCurrentIndex = currentItemKey ? nextPlaylist.findIndex((item) => getStableItemKey(item) === currentItemKey) : -1;
+      const shouldKeepCurrentItem = payload.applyStrategy !== 'immediate'
+        && currentItemKey
+        && nextCurrentIndex >= 0
+        && currentStageRoot.classList.contains('active');
+
+      if (!shouldKeepCurrentItem) {
+        clearPlayback();
+      }
+
+      playbackMode = payload.mode || 'loop';
+      playlist = nextPlaylist;
+      if (shouldKeepCurrentItem) {
+        currentIndex = nextCurrentIndex;
+      } else if (playbackMode === 'random') {
+        resetTopLevelRandomState();
+        currentIndex = consumeNextRandomTopLevelIndex();
+      } else {
+        currentIndex = 0;
+      }
+      activeFolderState = shouldKeepCurrentItem ? activeFolderState : null;
+      folderPlaybackCache.clear();
+
+      logPlayerEvent({
+        type: 'PLAYLIST_APPLIED',
+        mode: playbackMode,
+        itemCount: playlist.length,
+        items: playlist.map((item) => ({
+          type: item.type,
+          path: item.path || null,
+          src: item.src,
+          originalSrc: item.originalSrc,
+          durationMs: item.durationMs || null,
+        })),
+      });
+
+      if (!playlist.length) {
+        clearPlayback();
+        return;
+      }
+
+      if (!shouldKeepCurrentItem) {
+        playCurrent();
+      }
+      updateOverlayVisibility();
+    }
+
+    function showStatus(payload) {
+      latestStatus = { ...latestStatus, ...(payload || {}) };
+      const parts = [];
+      if (latestStatus.discovery) parts.push(`${t('discovery')}: ${latestStatus.discovery}`);
+      if (latestStatus.ws) parts.push(`WS: ${latestStatus.ws}`);
+      if (latestStatus.serverIp) parts.push(`${t('server')}: ${latestStatus.serverIp}`);
+      if (typeof latestStatus.approved === 'boolean') parts.push(`${t('approved')}: ${latestStatus.approved}`);
+      if (latestStatus.retryInMs) parts.push(`${t('retry')}: ${latestStatus.retryInMs}ms`);
+      if (latestStatus.auth) parts.push(`${t('auth')}: ${latestStatus.auth}`);
+      if (latestStatus.pairingCode) parts.push(`${t('pairingCode')}: ${latestStatus.pairingCode}`);
+      if (latestStatus.mode) parts.push(`${t('mode')}: ${latestStatus.mode}`);
+      if (latestStatus.maintenance) parts.push(`${t('maintenance')}: ${latestStatus.maintenance}`);
+      if (latestStatus.mediaLibraryPath) parts.push(`${t('mediaPath')}: ${latestStatus.mediaLibraryPath}`);
+      statusEl.textContent = parts.length ? parts.join(' | ') : t('waiting');
+      updateProgressVisual();
+    }
+
+    Object.entries(langButtons).forEach(([lang, button]) => {
+      button.addEventListener('click', () => {
+        currentLang = lang;
+        window.localStorage.setItem('ad_client_lang', lang);
+        renderLanguage();
+      });
+    });
+
+    quitButton.addEventListener('click', () => {
+      window.playerAPI.quitApp();
+    });
+
+    const chooseFolderButton = document.createElement('button');
+    chooseFolderButton.type = 'button';
+    chooseFolderButton.id = 'choose-folder-button';
+    document.querySelector('.overlay-actions').prepend(chooseFolderButton);
+    chooseFolderButton.addEventListener('click', async () => {
+      try {
+        await window.playerAPI.chooseMediaFolder();
+      } catch (_error) {
+      }
+    });
+
+    playbackMenuTrigger.addEventListener('click', () => {
+      menuPinned = true;
+      updateOverlayVisibility();
+    });
+
+    overlayEl.addEventListener('mouseleave', () => {
+      if (playlist.length > 0) {
+        menuPinned = false;
+        updateOverlayVisibility();
+      }
+    });
+
+    function handlePointerActivity(event) {
+      const nearTopRight = event.clientX >= window.innerWidth - 180 && event.clientY <= 120;
+      latestStatus.__showMenuTrigger = nearTopRight;
+      scheduleCursorHide();
+      updateOverlayVisibility();
+    }
+
+    document.addEventListener('mousemove', handlePointerActivity);
+    document.addEventListener('pointermove', handlePointerActivity);
+    document.addEventListener('mousedown', () => scheduleCursorHide());
+    document.addEventListener('wheel', () => scheduleCursorHide(), { passive: true });
+
+    window.playerAPI.onPlaylist((payload) => {
+      pendingPayload = null;
+      applyPlaybackPayload(payload || { mode: 'loop', items: [] });
+    });
+
+    window.addEventListener('error', (event) => {
+      window.playerAPI.reportError({
+        type: 'RENDERER_ERROR',
+        message: event.message || 'Renderer error',
+        filename: event.filename || null,
+        lineno: event.lineno || null,
+        colno: event.colno || null,
+      });
+    });
+
+    window.addEventListener('unhandledrejection', (event) => {
+      const reason = event.reason;
+      window.playerAPI.reportError({
+        type: 'RENDERER_UNHANDLED_REJECTION',
+        message: reason?.message || String(reason || 'Unhandled promise rejection'),
+        stack: reason?.stack || null,
+      });
+    });
+
+    renderLanguage();
+    window.playerAPI.onStatus(showStatus);
+    window.playerAPI.notifyReady();
+  </script>
+</body>
+</html>

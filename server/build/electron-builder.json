@@ -1,0 +1,35 @@
+{
+  "appId": "com.advertisingscreen.server.offline",
+  "productName": "AdvertisingScreenServer",
+  "directories": {
+    "output": "../windows/_server-installer-build"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "artifactName": "AdvertisingScreenServer-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "allowElevation": true,
+    "perMachine": false,
+    "runAfterFinish": true,
+    "displayLanguageSelector": true,
+    "installerLanguages": [
+      "zh_CN",
+      "en_US",
+      "ja_JP"
+    ],
+    "multiLanguageInstaller": true,
+    "license": "build/license.txt",
+    "include": "build/installer.nsh",
+    "artifactName": "AdvertisingScreenServer-Setup-${version}.${ext}"
+  }
+}

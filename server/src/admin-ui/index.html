@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advertising Screen Admin</title>
+  <style>
+    :root { --bg:#e7edf0; --bgDeep:#dce4e8; --nav:#11161b; --panel:rgba(249,252,253,.66); --panelStrong:rgba(252,254,255,.82); --line:rgba(24,35,43,.12); --lineStrong:rgba(24,35,43,.18); --text:#172127; --muted:#66757f; --accent:#c86635; --accentSoft:rgba(200,102,53,.12); --ok:#21815b; --warn:#b17a1b; --danger:#ad4a43; --shadow:0 18px 44px rgba(17,28,36,.10); --shadowSoft:0 8px 18px rgba(17,28,36,.06); }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:var(--text); background:
+      radial-gradient(circle at top left, rgba(200,102,53,.16), transparent 28%),
+      radial-gradient(circle at bottom right, rgba(33,129,91,.10), transparent 24%),
+      linear-gradient(180deg, rgba(255,255,255,.45), rgba(255,255,255,0)),
+      linear-gradient(135deg, var(--bg) 0%, var(--bgDeep) 100%); }
+    button,input,select { font:inherit; }
+    button { border:1px solid transparent; border-radius:999px; padding:10px 14px; min-height:40px; background:var(--accentSoft); color:var(--accent); font-weight:600; cursor:pointer; transition:transform .16s ease, background .16s ease, border-color .16s ease, box-shadow .16s ease; }
+    button:hover { transform:translateY(-1px); box-shadow:var(--shadowSoft); }
+    button.primary { background:linear-gradient(135deg, #cb6a37, #b9532d); color:#fff; box-shadow:0 10px 20px rgba(200,102,53,.22); }
+    button.ghost { background:rgba(255,255,255,.48); color:var(--text); border-color:var(--line); backdrop-filter:blur(12px); }
+    button.danger { background:rgba(165,60,47,.12); color:var(--danger); }
+    input[type="file"],input[type="number"],select { width:100%; min-height:40px; border:1px solid var(--line); border-radius:12px; padding:10px 12px; background:rgba(255,255,255,.84); color:var(--text); box-shadow:inset 0 1px 0 rgba(255,255,255,.65); }
+    input[type="checkbox"] { width:18px; height:18px; accent-color:var(--accent); cursor:pointer; }
+    .app { display:grid; grid-template-columns:240px minmax(0,1fr); min-height:100vh; align-items:start; }
+    .sidebar { position:sticky; top:0; height:100vh; overflow:auto; background:linear-gradient(180deg, rgba(17,22,27,.94), rgba(23,31,37,.90)); color:#eef3f6; padding:24px 18px; display:grid; grid-template-rows:auto auto auto 1fr auto; gap:20px; backdrop-filter:blur(18px); border-right:1px solid rgba(255,255,255,.08); }
+    .brand h1 { margin:0; font-size:24px; line-height:1.1; }
+    .brand p,.side-status,.side-foot { margin:0; font-size:13px; line-height:1.6; color:rgba(238,243,246,.7); }
+    .side-status { min-height:96px; padding:12px 14px; border-radius:18px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); overflow:hidden; backdrop-filter:blur(16px); }
+    .nav { display:grid; gap:8px; align-content:start; }
+    .nav button { text-align:left; border-radius:16px; background:transparent; color:rgba(238,243,246,.78); border:1px solid transparent; }
+    .nav button.active { background:linear-gradient(135deg, rgba(200,102,53,.18), rgba(200,102,53,.10)); color:#fff; border-color:rgba(200,102,53,.24); box-shadow:none; }
+    .nav small { display:block; margin-top:4px; opacity:.7; font-weight:400; }
+    .main { min-width:0; min-height:100vh; padding:24px; display:grid; gap:18px; align-content:start; }
+    .head { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .head h2 { margin:0; font-size:28px; }
+    .head p { margin:8px 0 0; color:var(--muted); font-size:14px; }
+    .panel { background:var(--panel); border:1px solid rgba(255,255,255,.52); border-radius:24px; padding:18px; box-shadow:var(--shadow); min-width:0; backdrop-filter:blur(16px) saturate(125%); }
+    .view { display:none; }
+    .view.active { display:block; }
+    .toolbar,.inline,.actions,.badges { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .toolbar { justify-content:space-between; }
+    .selectbar { margin-top:14px; padding:12px 14px; border-radius:18px; background:rgba(255,255,255,.54); border:1px solid rgba(255,255,255,.48); display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; backdrop-filter:blur(14px); }
+    .device-list,.library-list,.status-list { display:grid; gap:14px; margin-top:14px; }
+    .device,.library,.status,.summary,.asset { background:var(--panelStrong); border:1px solid rgba(255,255,255,.62); border-radius:20px; padding:14px; min-width:0; overflow:hidden; box-shadow:var(--shadowSoft); backdrop-filter:blur(14px); }
+    .meta { margin-top:4px; color:#83919a; font-size:12px; overflow-wrap:anywhere; word-break:break-word; }
+    .badge { padding:4px 10px; border-radius:999px; font-size:12px; background:rgba(23,33,39,.07); }
+    .badge.online { background:rgba(31,122,69,.14); color:var(--ok); }
+    .badge.pending { background:rgba(154,98,13,.14); color:var(--warn); }
+    .badge.selected { background:rgba(194,74,42,.14); color:var(--accent); }
+    .topline { display:flex; gap:10px; align-items:center; }
+    .device-list { grid-template-columns:repeat(auto-fit,minmax(320px,450px)); justify-content:start; }
+    .device { display:grid; gap:10px; padding:14px; }
+    .device-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .device-title { display:flex; gap:10px; align-items:flex-start; min-width:0; }
+    .device-title strong { display:block; font-size:16px; line-height:1.2; }
+    .device-subhead { display:grid; gap:4px; min-width:0; }
+    .device-meta-grid { display:grid; gap:6px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .device-meta-chip { padding:8px 10px; border-radius:14px; background:rgba(244,248,250,.8); border:1px solid rgba(24,35,43,.08); min-width:0; }
+    .device-meta-chip strong { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:4px; }
+    .device-meta-chip span { display:block; font-size:13px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .device-section { padding:10px; border-radius:16px; background:rgba(245,249,251,.72); border:1px solid rgba(255,255,255,.55); }
+    .device-section-title { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px; }
+    .device-foot { display:grid; gap:8px; }
+    .actions.compact button { min-height:36px; padding:8px 12px; }
+    .asset-grid { margin-top:14px; display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; align-items:stretch; }
+    .asset-grid.mode-large { grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
+    .asset-grid.mode-thumb { grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); }
+    .asset-grid.mode-thumb .asset-title { min-height:60px; font-size:14px; -webkit-line-clamp:2; }
+    .asset-grid.mode-thumb .asset-meta { min-height:74px; }
+    .asset-grid.mode-thumb .preview,.asset-grid.mode-thumb .preview-card { aspect-ratio:16/10; }
+    .asset-grid.mode-list { grid-template-columns:1fr; }
+    .asset-grid.mode-list .asset { display:grid; grid-template-columns:140px minmax(0,1fr) auto; gap:14px; align-items:center; min-height:auto; }
+    .asset-grid.mode-list .asset-title { min-height:auto; }
+    .asset-grid.mode-list .asset-meta { min-height:auto; }
+    .asset-grid.mode-list .preview,.asset-grid.mode-list .preview-card { margin-top:0; aspect-ratio:16/10; }
+    .asset-grid.mode-list .asset-actions { margin-top:0; justify-content:flex-end; }
+    .asset-list-row { display:grid; grid-template-columns:180px minmax(0,1fr) auto; gap:16px; align-items:center; }
+    .asset-list-body { min-width:0; }
+    .asset-list-body .asset-title { min-height:auto; margin:0; }
+    .asset-list-body .meta { margin-top:4px; }
+    .lang-switch { display:flex; gap:6px; flex-wrap:wrap; }
+    .lang-switch button { padding:8px 10px; }
+    .upload-dropzone { margin-top:14px; padding:20px; border-radius:20px; border:1px dashed rgba(194,74,42,.35); background:rgba(255,255,255,.64); display:grid; gap:10px; justify-items:start; transition:border-color .18s ease, background .18s ease; cursor:pointer; }
+    .upload-dropzone.active { border-color:var(--accent); background:rgba(194,74,42,.09); }
+    .upload-dropzone input[type="file"] { display:none; }
+    .upload-selection { width:100%; display:grid; gap:8px; padding:12px 14px; border-radius:16px; background:rgba(255,255,255,.56); border:1px solid rgba(24,35,43,.08); }
+    .upload-selection[hidden] { display:none; }
+    .upload-selection strong { font-size:13px; }
+    .upload-selection-list { display:grid; gap:6px; max-height:168px; overflow:auto; }
+    .upload-selection-item { display:flex; justify-content:space-between; gap:10px; font-size:12px; color:var(--muted); }
+    .upload-selection-item span:first-child { color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .preview { width:100%; aspect-ratio:16/10; object-fit:cover; border-radius:14px; background:rgba(36,25,18,.08); margin-top:10px; }
+    .preview-card { width:100%; aspect-ratio:16/10; border-radius:14px; background:linear-gradient(135deg, rgba(31,24,18,.08), rgba(194,74,42,.16)); margin-top:10px; display:grid; place-items:center; color:var(--muted); font-weight:600; letter-spacing:.04em; }
+    .preview-card strong { color:var(--text); font-size:15px; }
+    .preview-card span { font-size:12px; }
+    .asset { display:flex; flex-direction:column; min-height:100%; }
+    .asset-title { min-height:60px; font-size:15px; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .asset-meta { min-height:74px; }
+    .asset-actions { margin-top:auto; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-top:14px; }
+    .summary,.status { background:rgba(250,253,255,.72); }
+    .metric-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-top:0; }
+    .metric { display:grid; gap:4px; padding:8px 9px; border-radius:12px; background:rgba(255,255,255,.58); border:1px solid rgba(24,35,43,.06); min-width:0; }
+    .metric-head { display:grid; gap:2px; font-size:11px; color:var(--muted); }
+    .metric-head span:last-child { font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .meter { width:100%; height:6px; border-radius:999px; background:rgba(23,33,39,.08); overflow:hidden; }
+    .meter > span { display:block; height:100%; background:linear-gradient(90deg, #21815b, #c86635); border-radius:inherit; transition:width .3s ease-out; }
+    .drawer-backdrop { position:fixed; inset:0; background:rgba(21,14,9,.34); opacity:0; pointer-events:none; transition:opacity .18s ease; z-index:1000; }
+    .drawer-backdrop.open { opacity:1; pointer-events:auto; }
+    .preview-backdrop { position:fixed; inset:0; background:rgba(10,8,6,.72); opacity:0; pointer-events:none; transition:opacity .18s ease; z-index:1200; }
+    .preview-backdrop.open { opacity:1; pointer-events:auto; }
+    .preview-modal { position:fixed; inset:50% auto auto 50%; width:min(960px,92vw); max-height:86vh; transform:translate(-50%,-48%) scale(.98); opacity:0; pointer-events:none; background:rgba(255,252,247,.98); border:1px solid var(--line); border-radius:24px; box-shadow:0 24px 56px rgba(0,0,0,.24); padding:18px; display:grid; grid-template-rows:auto 1fr; gap:12px; z-index:1300; transition:transform .18s ease, opacity .18s ease; }
+    .preview-modal.open { opacity:1; pointer-events:auto; transform:translate(-50%,-50%) scale(1); }
+    .preview-stage { min-height:0; display:grid; place-items:center; background:rgba(36,25,18,.06); border-radius:18px; overflow:hidden; }
+    .preview-stage img,.preview-stage video { max-width:100%; max-height:68vh; width:auto; height:auto; object-fit:contain; background:#000; }
+    
+    .drawer { position:fixed; top:0; right:0; width:min(540px,100vw); height:100vh; background:rgba(244,249,251,.8); border-left:1px solid rgba(255,255,255,.5); box-shadow:-18px 0 42px rgba(17,28,36,.16); padding:20px; display:grid; grid-template-rows:auto auto 1fr auto; gap:16px; transform:translateX(100%); transition:transform .24s cubic-bezier(0.4, 0, 0.2, 1); z-index:1100; backdrop-filter:blur(32px) saturate(150%); }
+    .drawer.open { transform:translateX(0); }
+    .drawer-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+    .drawer-head h3 { margin:0; font-size:18px; font-weight:700; color:var(--text); letter-spacing:-0.01em; }
+    
+    .drawer-top-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .control-unit { height:38px; display:flex; align-items:center; background:rgba(255,255,255,.45); border:1px solid rgba(24,35,43,.08); border-radius:10px; transition:all .2s; }
+    .control-unit:hover { background:rgba(255,255,255,.65); border-color:rgba(24,35,43,.18); }
+    .control-unit.button { justify-content:center; cursor:pointer; font-size:13px; font-weight:600; color:var(--text); padding:0 12px; }
+    
+    .mode-unit { padding:0 10px; gap:8px; }
+    .mode-unit label { font-size:12px; font-weight:600; color:var(--muted); white-space:nowrap; }
+    .mode-unit select { flex:1; height:30px; border:0; background:transparent; padding:0; font-size:13px; font-weight:500; cursor:pointer; color:var(--text); outline:none; }
+    
+    .drawer-section { display:grid; gap:12px; align-content:start; min-height:0; }
+    .drawer-section-label { display:flex; justify-content:space-between; align-items:baseline; }
+    .drawer-section-label label { font-size:14px; font-weight:700; color:var(--text); }
+    
+    .input-group-compact { display:flex; align-items:stretch; height:38px; border-radius:10px; overflow:hidden; border:1px solid rgba(24,35,43,.12); background:rgba(255,255,255,.8); box-shadow:0 2px 4px rgba(0,0,0,0.02); }
+    .input-group-compact select { flex:1; border:0; background:transparent; padding:0 12px; font-size:13px; color:var(--text); outline:none; }
+    .input-group-compact button { border:0; border-radius:0; padding:0 16px; background:var(--accentSoft); color:var(--accent); font-size:13px; font-weight:600; min-height:0; }
+    .input-group-compact button:hover { background:rgba(200,102,53,.2); }
+    
+    .playlist-items { display:flex; flex-direction:column; gap:8px; overflow-y:auto; border-radius:12px; margin-top:4px; }
+    .playlist-item { background:rgba(255,255,255,0.7); border:1px solid rgba(24,35,43,0.06); border-radius:10px; transition:all .2s; cursor:pointer; }
+    .playlist-item:hover { background:rgba(255,255,255,0.9); border-color:rgba(24,35,43,0.12); }
+    .playlist-item.active { background:#fff; border-color:var(--accent); box-shadow:0 4px 12px rgba(200,102,53,0.12); }
+    
+    .playlist-item .asset-list-row { height:52px; padding:0 12px; display:flex; align-items:center; gap:12px; }
+    .playlist-index { width:20px; font-size:11px; font-weight:700; color:var(--muted); text-align:center; }
+    .playlist-thumb-container { width:36px; height:36px; border-radius:6px; background:rgba(0,0,0,0.04); overflow:hidden; flex-shrink:0; }
+    .asset-list-body { flex:1; min-width:0; }
+    .asset-title { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; }
+    .playlist-path-meta { font-size:11px; color:var(--muted); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .playlist-duration-slot { width:52px; display:flex; justify-content:center; }
+    .playlist-inline-input { width:48px; height:28px; border:1px solid rgba(0,0,0,0.08); border-radius:6px; text-align:center; font-size:12px; background:rgba(0,0,0,0.02); }
+    .playlist-inline-select { width:88px; height:28px; border:1px solid rgba(0,0,0,0.08); border-radius:6px; text-align:center; font-size:12px; background:rgba(0,0,0,0.02); color:var(--text); }
+    .playlist-controls { display:flex; gap:4px; margin-left:8px; }
+    .playlist-controls button { width:28px; min-width:28px; height:28px; min-height:28px; padding:0; font-size:12px; border-radius:6px; }
+    
+    .drawer-footer { padding-top:12px; border-top:1px solid rgba(24,35,43,0.05); display:grid; gap:10px; }
+    .drawer-note { font-size:11px; color:var(--muted); line-height:1.4; text-align:center; padding:0 8px; }
+    .drawer-footer .primary { width:100%; height:44px; font-size:15px; letter-spacing:0.02em; }
+    .drawer-subtools { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+    .view-switch { display:flex; gap:8px; flex-wrap:wrap; }
+    .view-switch button.active { background:var(--accent); color:#fff; }
+    .playlist-index { width:20px; font-size:11px; font-weight:700; color:var(--muted); text-align:center; }
+    .playlist-thumb-container { width:36px; height:36px; border-radius:6px; background:rgba(0,0,0,0.04); overflow:hidden; flex-shrink:0; }
+    .playlist-thumb-container img, .playlist-thumb-container video { width:100%; height:100%; object-fit:cover; }
+    .asset-list-body { overflow: hidden; flex:1 1 auto; min-width:0; }
+    .asset-title { font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    .playlist-path-meta { margin:0; opacity:.72; font-size:12px; color:#83919a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .playlist-duration-slot { width:52px; min-width:52px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .playlist-folder-mode-slot { width:92px; min-width:92px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .playlist-controls { display: flex; gap: 4px; align-items: center; justify-content: flex-end; margin-left:auto; flex-shrink:0; }
+    .playlist-controls button { padding: 0; width: 28px; min-width: 28px; height: 28px; font-size: 14px; }
+    .playlist-inline-input { width: 52px; height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 4px; text-align: center; font-size: 12px; }
+    .icon-button { width:36px; min-width:36px; height:36px; min-height:36px; padding:0; border-radius:12px; border:1px solid rgba(200,102,53,.28); background:rgba(255,255,255,.82); color:var(--accent); font-size:20px; line-height:1; display:grid; place-items:center; }
+    .hint,.empty { padding:12px; border-radius:16px; background:rgba(33,129,91,.08); color:var(--muted); font-size:13px; border:1px solid rgba(255,255,255,.48); backdrop-filter:blur(12px); }
+    .drawer-note { padding:0; color:#83919a; font-size:12px; line-height:1.45; }
+    .drawer-footer { display:grid; gap:8px; padding-top:4px; }
+    .drawer-footer .primary { width:100%; }
+    .empty { text-align:center; background:rgba(255,255,255,.52); border:1px dashed var(--lineStrong); }
+    @media (max-width:1200px) { .device-meta-grid { grid-template-columns:1fr; } }
+    @media (max-width:980px) { .app { grid-template-columns:1fr; } .nav { grid-template-columns:repeat(2,minmax(0,1fr)); } .drawer-topbar { flex-direction:column; align-items:stretch; } .mode-field { width:100%; } .mode-field select { width:100%; min-width:0; } .metric-grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><h1 id="brandTitle">广告投屏</h1><p id="brandDesc">中央设备控制台，统一管理设备、素材、安装包和状态。</p></div>
+      <div class="lang-switch">
+        <button id="lang-zh" type="button">中</button>
+        <button id="lang-en" type="button">EN</button>
+        <button id="lang-ja" type="button">日</button>
+      </div>
+      <div class="side-status" id="sideStatus">等待状态加载...</div>
+      <nav class="nav">
+        <button class="active" data-view="devices" onclick="switchView('devices')"><span id="navDevicesLabel">设备列表</span><small id="navDevicesDesc">审批、勾选、配置和远程操作</small></button>
+        <button data-view="assets" onclick="switchView('assets')"><span id="navAssetsLabel">素材库</span><small id="navAssetsDesc">大卡片预览、上传和删除</small></button>
+        <button data-view="installers" onclick="switchView('installers')"><span id="navInstallersLabel">安装包</span><small id="navInstallersDesc">MSI 仓库和客户端更新</small></button>
+        <button data-view="status" onclick="switchView('status')"><span id="navStatusLabel">系统状态</span><small id="navStatusDesc">服务端和设备健康总览</small></button>
+      </nav>
+      <div class="side-foot" id="sideFoot">分发操作统一从右侧配置抽屉完成，避免工作区重复堆叠。</div>
+    </aside>
+    <main class="main">
+      <div class="head">
+        <div><h2 id="viewTitle">设备列表</h2><p id="viewDesc">以设备为中心进行审批、勾选、配置、诊断和安装。</p></div>
+        <div class="inline"><button class="ghost" id="refreshButton" onclick="refresh().catch(showError)">刷新</button></div>
+      </div>
+      <section class="view active" id="view-devices">
+        <div class="panel">
+          <div class="toolbar">
+            <div class="inline"><button id="selectApprovedButton" onclick="selectAllApprovedDevices()">全选已审批</button><button id="clearSelectedButton" onclick="clearSelectedDevices()">清空勾选</button></div>
+            <button class="primary" id="batchConfigButton" onclick="openBatchConfig()">配置所选设备</button>
+          </div>
+          <div class="selectbar">
+            <div><strong id="selectionSummary">当前未勾选设备</strong><div class="meta" id="selectionHint">请先在设备列表中勾选设备，或直接点击某台设备的“配置”。</div></div>
+            <button class="ghost" id="openDrawerButton" onclick="openBatchConfig()">打开配置抽屉</button>
+          </div>
+          <div class="device-list" id="deviceList"></div>
+        </div>
+      </section>
+      <section class="view" id="view-assets">
+        <div class="panel">
+          <div class="toolbar">
+            <div><h3 style="margin:0;" id="assetsPanelTitle">素材库</h3><div class="meta" id="assetCurrentDir">当前目录：/</div></div>
+            <div class="inline">
+              <div class="view-switch">
+                <button type="button" id="assetViewLargeButton" onclick="setAssetViewMode('large')">大图</button>
+                <button type="button" id="assetViewThumbButton" onclick="setAssetViewMode('thumb')">缩略图</button>
+                <button type="button" id="assetViewListButton" onclick="setAssetViewMode('list')">列表</button>
+              </div>
+              <button type="button" id="assetBackButton" onclick="goToParentAssetDir()">返回上级</button>
+              <button type="button" id="assetNewFolderButton" onclick="createAssetFolder().catch(showError)">新建文件夹</button>
+            </div>
+          </div>
+          <div class="upload-dropzone" id="assetDropzone">
+            <input id="assetFile" type="file" accept="image/*,video/*" multiple onchange="renderAssetSelection()">
+            <input id="assetFolder" type="file" webkitdirectory directory multiple onchange="renderAssetSelection()">
+            <strong id="assetDropTitle">拖拽文件到这里，或选择多个文件/整个文件夹</strong>
+            <div class="meta" id="assetDropDesc">支持多文件上传、整文件夹上传，并保留文件夹层级。</div>
+            <div class="inline" style="margin-top:0;">
+              <button type="button" class="primary" id="chooseAssetFileButton" onclick="chooseAssetFile()">选择文件</button>
+              <button type="button" class="primary" id="chooseAssetFolderButton" onclick="chooseAssetFolder()">选择文件夹</button>
+              <button type="button" class="primary" id="uploadAssetButton" onclick="uploadAsset().catch(showError)">上传素材</button>
+            </div>
+            <div class="upload-selection" id="assetSelection">
+              <strong id="assetSelectionTitle">已选择 0 个素材</strong>
+              <div class="upload-selection-list" id="assetSelectionList"><div class="meta">尚未选择素材。</div></div>
+            </div>
+          </div>
+          <div class="asset-grid" id="assetGrid"></div>
+        </div>
+      </section>
+      <section class="view" id="view-installers">
+        <div class="panel">
+          <div class="toolbar">
+            <div><h3 style="margin:0;" id="installersPanelTitle">安装包</h3><div class="meta" id="installersPanelDesc">上传 MSI，并从设备卡片触发单设备安装。</div></div>
+            <div class="inline"><input id="installerFile" type="file" accept=".msi"><button class="primary" id="uploadInstallerButton" onclick="uploadInstaller()">上传 MSI</button></div>
+          </div>
+          <div class="library-list" id="installerList"></div>
+          <div class="panel" style="margin-top:14px; padding:14px;"><h3 style="margin:0;" id="releasePanelTitle">客户端更新包</h3><div class="meta" id="releasePanelDesc">从 `server/storage/releases/client` 自动读取。</div><div class="library-list" id="releaseList"></div></div>
+        </div>
+      </section>
+      <section class="view" id="view-status">
+        <div class="panel">
+          <h3 style="margin:0;" id="statusPanelTitle">系统状态</h3>
+          <div class="summary-grid" id="summaryGrid"></div>
+          <div class="status-list" id="statusList"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="preview-backdrop" id="previewBackdrop" onclick="closeAssetPreview()"></div>
+  <div class="preview-modal" id="previewModal">
+    <div class="drawer-head">
+      <div><h3 style="margin:0;" id="previewTitle">预览</h3><div class="meta" id="previewMeta">-</div></div>
+      <button class="ghost" id="previewCloseButton" onclick="closeAssetPreview()">关闭</button>
+    </div>
+    <div class="preview-stage" id="previewStage"></div>
+  </div>
+  <div class="drawer-backdrop" id="drawerBackdrop" onclick="closeConfigDrawer()"></div>
+  <aside class="drawer" id="configDrawer">
+    <div class="drawer-head">
+      <div><h3 id="drawerTitle">分发配置</h3><div class="meta" id="configTargetText">未选择目标设备</div></div>
+      <button class="ghost" style="min-height:30px; height:30px; padding:0 12px; font-size:12px;" onclick="closeConfigDrawer()">关闭</button>
+    </div>
+
+    <div class="drawer-top-grid">
+      <button class="control-unit button" id="loadTemplateButton" onclick="loadGlobalTemplate()">载入全局模板</button>
+      <div class="control-unit mode-unit">
+        <label id="playlistModeLabel">播放模式</label>
+        <select id="playlistMode">
+          <option value="loop">列表循环</option>
+          <option value="sequence">顺序播放</option>
+          <option value="single">单项循环</option>
+          <option value="random">随机播放</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-section-label">
+        <label id="playlistItemsLabel">播放素材</label>
+        <span class="meta" id="drawerFolderInfo" style="font-weight:400;">一级菜单：/item</span>
+      </div>
+      
+      <div class="input-group-compact">
+        <select id="drawerAssetPicker" onchange="syncDrawerSelectionToTargetItem()"></select>
+        <button type="button" id="addSelectedAssetButton" onclick="addSelectedDrawerEntry()">添加</button>
+      </div>
+      
+      <div class="playlist-items" id="playlistItems" style="max-height:calc(100vh - 320px);"></div>
+    </div>
+
+    <div class="drawer-footer">
+      <div class="drawer-note" id="playlistHint">从右侧抽屉选择素材；视频自动读取时长，图片手动设置。</div>
+      <button class="primary" id="applyConfigButton" onclick="applyConfigToTargets()">保存并下发</button>
+    </div>
+  </aside>
+  <script>
+    const locales={
+      zh:{
+        brandTitle:'广告投屏',brandDesc:'中央设备控制台，统一管理设备、素材、安装包和状态。',waitingStatus:'等待状态加载...',refresh:'刷新',
+        navDevicesLabel:'设备列表',navDevicesDesc:'审批、勾选、配置和远程操作',navAssetsLabel:'素材库',navAssetsDesc:'大卡片预览、上传和删除',navInstallersLabel:'安装包',navInstallersDesc:'MSI 仓库和客户端更新',navStatusLabel:'系统状态',navStatusDesc:'服务端和设备健康总览',
+        sideFoot:'分发操作统一从右侧配置抽屉完成，避免工作区重复堆叠。',
+        viewDevicesTitle:'设备列表',viewDevicesDesc:'以设备为中心进行审批、勾选、配置、诊断和安装。',viewAssetsTitle:'素材库',viewAssetsDesc:'以大卡片形式预览素材，支持上传与删除。',viewInstallersTitle:'安装包',viewInstallersDesc:'维护 MSI 仓库和客户端更新包。',viewStatusTitle:'系统状态',viewStatusDesc:'查看服务端运行状态、设备健康度和版本分布。',
+        selectApproved:'全选已审批',clearSelected:'清空勾选',batchConfig:'配置所选设备',openDrawer:'打开配置抽屉',
+        assetsPanelTitle:'素材库',currentDir:'当前目录',goParent:'返回上级',newFolder:'新建文件夹',dropTitle:'拖拽文件到这里，或选择多个文件/整个文件夹',dropDesc:'支持多文件上传、整文件夹上传，并保留文件夹层级。',chooseFile:'选择文件',chooseFolder:'选择文件夹',uploadAsset:'上传素材',assetViewLarge:'大图',assetViewThumb:'缩略图',assetViewList:'列表',selectedAssets:(n)=>`已选择 ${n} 个素材`,
+        installersPanelTitle:'安装包',installersPanelDesc:'上传 MSI，并从设备卡片触发单设备安装。',uploadMsi:'上传 MSI',releasePanelTitle:'客户端更新包',releasePanelDesc:'从 `server/storage/releases/client` 自动读取。',statusPanelTitle:'系统状态',
+        drawerTitle:'分发配置',drawerClose:'关闭',applyConfig:'保存并下发',applyConfigPending:'正在下发...',applyConfigDone:'下发完成',loadTemplate:'载入全局模板',playlistMode:'播放模式',modeLoop:'列表循环',modeSequence:'顺序播放',modeSingle:'单项循环',modeRandom:'随机播放',playlistItems:'播放素材',addItem:'添加一项',addFolderItems:'添加当前文件夹',folderOrder:'文件夹播放顺序',folderOrderAsc:'名称顺序',folderOrderDesc:'名称倒序',folderItem:'文件夹',folderPlayMode:'文件夹内播放',folderPlayModeSequence:'顺序',folderPlayModeRandom:'随机',
+        selectionNone:'当前未勾选设备',selectionHint:'请先在设备列表中勾选设备，或直接点击某台设备的“配置”。',selectionCount:(n)=>`已勾选 ${n} 台设备`,
+        configTargetNone:'未选择目标设备',configTarget:(names)=>`当前目标：${names.join('、')}`,playlistHintReady:'从右侧抽屉选择素材；视频将自动读取时长，图片按秒设置后点击“保存并下发”。',playlistHintEmpty:'素材库还没有内容，请先上传图片或视频。',
+        emptyDevices:'暂无设备，等待客户端广播。',emptyAssets:'当前目录还没有内容。',emptyPlaylist:'还没有播放项，点击“添加一项”。',emptyInstallers:'还没有 MSI 安装包。',emptyRelease:'暂无客户端更新包。',
+        assetFolder:'文件夹',open:'打开',preview:'预览',deleteAsset:'删除素材',deleteFolder:'删除文件夹',path:'路径',type:'类型',size:'大小',product:'产品',version:'版本',kind:'类型',previewDialog:'素材预览',previewUnavailable:'当前素材无法预览',
+        server:'服务端',ports:'端口',approved:'已批准',online:'在线',
+        ip:'IP',platform:'系统',lastSeen:'最后在线',pairingCode:'配对码',install:'安装',disk:'磁盘',health:'健康度',gpu:'GPU',client:'客户端',error:'错误',
+        cpu:'CPU',memory:'内存',storage:'存储',connected:'已连接',offline:'离线',approvedState:'已批准',pendingApproval:'待批准',selected:'已选中',
+        approve:'批准',configure:'配置',capture:'截图',checkVlc:'检查 VLC',reload:'重载播放器',remoteStart:'远程启动客户端',installFirst:'安装首个 MSI',pushUpdate:'下发客户端更新',quitClient:'关闭客户端',unbindClient:'解绑客户端',
+        download:'下载',downloadIdle:'空闲',downloadWaiting:'等待中',downloadRetrying:'重试中',downloadDownloading:'下发中',downloadStreaming:'本地素材库',downloadCompleted:'完成',downloadFailed:'失败',speed:'速度',
+        healthUnknown:'未知',healthCritical:'严重',healthWarning:'警告',healthHealthy:'正常',gpuDisabled:'已禁用',gpuSoftware:'软件渲染',
+        summaryServerIp:'服务端 IP',summaryDevices:'设备总数',summaryOnline:'在线设备',summaryAssets:'素材数量',summaryInstallers:'MSI 数量',summaryLatestClient:'最新客户端版本',
+        statusHttp:'HTTP / WS / UDP',statusApprovedDevices:'已批准设备',statusPairingKey:'配对密钥',
+        localLibrarySaved:'已保存到本地素材库',
+        promptAdminToken:'请输入管理后台访问令牌',promptFolder:'请输入文件夹名称',promptPairing:'请输入屏幕上显示的 6 位配对验证码',confirmDeleteFolder:'确认删除这个文件夹及其中全部素材吗？',confirmUnbindClient:'确认解绑这台客户端吗？解绑后需要重新配对。',
+        errorSelectFileOrFolder:'请选择文件或文件夹',errorSelectFile:'请选择文件',errorAtLeastOne:'请至少添加一个播放素材',errorNoTargets:'未选择目标设备',errorNeedSelectedDevice:'请先勾选至少一台设备',errorNoMsi:'No MSI files in library',
+        playbackAsset:'素材',playbackDuration:'播放时长',playbackDurationAuto:'自动读取视频实际时长',playbackDurationSeconds:'播放时长（秒）',moveUp:'上移',moveDown:'下移',delete:'删除'
+      },
+      en:{
+        brandTitle:'Advertising Screen',brandDesc:'Central console for devices, assets, installers, and health.',waitingStatus:'Loading status...',refresh:'Refresh',
+        navDevicesLabel:'Devices',navDevicesDesc:'Approve, select, configure, and operate remotely',navAssetsLabel:'Assets',navAssetsDesc:'Preview, upload, and delete',navInstallersLabel:'Installers',navInstallersDesc:'MSI library and client updates',navStatusLabel:'Status',navStatusDesc:'Server and device health overview',
+        sideFoot:'All distribution actions are handled in the right drawer to keep the workspace clean.',
+        viewDevicesTitle:'Devices',viewDevicesDesc:'Manage approvals, selection, configuration, diagnostics, and installs per device.',viewAssetsTitle:'Assets',viewAssetsDesc:'Preview assets as large cards and manage uploads.',viewInstallersTitle:'Installers',viewInstallersDesc:'Maintain MSI packages and client releases.',viewStatusTitle:'Status',viewStatusDesc:'Review server health, device status, and version distribution.',
+        selectApproved:'Select approved',clearSelected:'Clear',batchConfig:'Configure selected',openDrawer:'Open drawer',
+        assetsPanelTitle:'Assets',currentDir:'Current directory',goParent:'Up',newFolder:'New folder',dropTitle:'Drop files here, or choose multiple files / a whole folder',dropDesc:'Supports multi-file and full-folder upload while keeping folder structure.',chooseFile:'Choose files',chooseFolder:'Choose folder',uploadAsset:'Upload assets',assetViewLarge:'Large',assetViewThumb:'Thumbs',assetViewList:'List',selectedAssets:(n)=>`${n} asset(s) selected`,
+        installersPanelTitle:'Installers',installersPanelDesc:'Upload MSI packages and trigger single-device installs.',uploadMsi:'Upload MSI',releasePanelTitle:'Client releases',releasePanelDesc:'Read automatically from `server/storage/releases/client`.',statusPanelTitle:'System status',
+        drawerTitle:'Dispatch configuration',drawerClose:'Close',applyConfig:'Save and dispatch',applyConfigPending:'Dispatching...',applyConfigDone:'Dispatched',loadTemplate:'Load global template',playlistMode:'Playback mode',modeLoop:'Playlist loop',modeSequence:'Sequence',modeSingle:'Single item loop',modeRandom:'Random',playlistItems:'Playlist items',addItem:'Add item',addFolderItems:'Add current folder',folderOrder:'Folder order',folderOrderAsc:'Name ascending',folderOrderDesc:'Name descending',folderItem:'Folder',folderPlayMode:'Folder playback',folderPlayModeSequence:'Sequence',folderPlayModeRandom:'Random',
+        selectionNone:'No devices selected',selectionHint:'Select a device in the list, or use a device card to open configuration directly.',selectionCount:(n)=>`${n} device(s) selected`,
+        configTargetNone:'No target device selected',configTarget:(names)=>`Targets: ${names.join(', ')}`,playlistHintReady:'Choose assets in the drawer. Video uses its real duration, while images are configured in seconds.',playlistHintEmpty:'No assets yet. Upload images or videos first.',
+        emptyDevices:'No devices yet. Waiting for client broadcasts.',emptyAssets:'This directory is empty.',emptyPlaylist:'No playlist items yet. Click "Add item".',emptyInstallers:'No MSI packages uploaded yet.',emptyRelease:'No client release package found.',
+        assetFolder:'Folder',open:'Open',preview:'Preview',deleteAsset:'Delete asset',deleteFolder:'Delete folder',path:'Path',type:'Type',size:'Size',product:'Product',version:'Version',kind:'Kind',previewDialog:'Asset preview',previewUnavailable:'Preview is not available for this asset',
+        server:'Server',ports:'Ports',approved:'Approved',online:'Online',
+        ip:'IP',platform:'Platform',lastSeen:'Last Seen',pairingCode:'Pairing Code',install:'Install',disk:'Disk',health:'Health',gpu:'GPU',client:'Client',error:'Error',
+        cpu:'CPU',memory:'Memory',storage:'Storage',connected:'Connected',offline:'Offline',approvedState:'Approved',pendingApproval:'Pending approval',selected:'Selected',
+        approve:'Approve',configure:'Configure',capture:'Capture Screen',checkVlc:'Check VLC',reload:'Reload',remoteStart:'Remote Start Client',installFirst:'Install First MSI',pushUpdate:'Push Client Update',quitClient:'Quit Client',unbindClient:'Unbind Client',
+        download:'Download',downloadIdle:'Idle',downloadWaiting:'Pending',downloadRetrying:'Retrying',downloadDownloading:'Pushing',downloadStreaming:'Local library',downloadCompleted:'Completed',downloadFailed:'Failed',speed:'Speed',
+        healthUnknown:'unknown',healthCritical:'critical',healthWarning:'warning',healthHealthy:'healthy',gpuDisabled:'disabled',gpuSoftware:'software',
+        summaryServerIp:'Server IP',summaryDevices:'Total devices',summaryOnline:'Online devices',summaryAssets:'Assets',summaryInstallers:'MSI packages',summaryLatestClient:'Latest client version',
+        statusHttp:'HTTP / WS / UDP',statusApprovedDevices:'Approved devices',statusPairingKey:'Pairing key',localLibrarySaved:'Saved to local media library',
+        promptAdminToken:'Enter the admin access token',promptFolder:'Enter the folder name',promptPairing:'Enter the 6-digit pairing code shown on the screen',confirmDeleteFolder:'Delete this folder and all assets inside it?',confirmUnbindClient:'Unbind this client? It will need to pair again.',
+        errorSelectFileOrFolder:'Please choose files or a folder',errorSelectFile:'Please choose a file',errorAtLeastOne:'Please add at least one media item',errorNoTargets:'No target device selected',errorNeedSelectedDevice:'Select at least one device first',errorNoMsi:'No MSI files in library',
+        playbackAsset:'Asset',playbackDuration:'Playback duration',playbackDurationAuto:'Use the video\'s real duration automatically',playbackDurationSeconds:'Playback duration (seconds)',moveUp:'Up',moveDown:'Down',delete:'Delete'
+      },
+      ja:{
+        brandTitle:'広告配信',brandDesc:'デバイス、素材、インストーラー、状態を一元管理するコンソールです。',waitingStatus:'状態を読み込み中...',refresh:'更新',
+        navDevicesLabel:'デバイス',navDevicesDesc:'承認、選択、設定、遠隔操作',navAssetsLabel:'素材',navAssetsDesc:'プレビュー、アップロード、削除',navInstallersLabel:'インストーラー',navInstallersDesc:'MSI ライブラリとクライアント更新',navStatusLabel:'状態',navStatusDesc:'サーバーとデバイスの状態概要',
+        sideFoot:'配信操作はすべて右側ドロワーから行い、作業領域を整理します。',
+        viewDevicesTitle:'デバイス',viewDevicesDesc:'承認、選択、設定、診断、インストールをデバイス単位で管理します。',viewAssetsTitle:'素材',viewAssetsDesc:'大きなカードで素材をプレビューし、アップロードを管理します。',viewInstallersTitle:'インストーラー',viewInstallersDesc:'MSI パッケージとクライアント更新を管理します。',viewStatusTitle:'状態',viewStatusDesc:'サーバー状態、デバイス状態、バージョン分布を確認します。',
+        selectApproved:'承認済みを選択',clearSelected:'クリア',batchConfig:'選択デバイスを設定',openDrawer:'ドロワーを開く',
+        assetsPanelTitle:'素材',currentDir:'現在のフォルダー',goParent:'上へ',newFolder:'新規フォルダー',dropTitle:'ここにファイルをドロップするか、複数ファイル / フォルダーを選択',dropDesc:'複数ファイル、フォルダー単位のアップロード、階層保持に対応します。',chooseFile:'ファイル選択',chooseFolder:'フォルダー選択',uploadAsset:'素材をアップロード',assetViewLarge:'大',assetViewThumb:'縮略',assetViewList:'一覧',selectedAssets:(n)=>`${n} 件の素材を選択中`,
+        installersPanelTitle:'インストーラー',installersPanelDesc:'MSI をアップロードし、デバイスカードから単体インストールを実行します。',uploadMsi:'MSI をアップロード',releasePanelTitle:'クライアント更新',releasePanelDesc:'`server/storage/releases/client` から自動取得します。',statusPanelTitle:'システム状態',
+        drawerTitle:'配信設定',drawerClose:'閉じる',applyConfig:'保存して配信',applyConfigPending:'配信中...',applyConfigDone:'配信完了',loadTemplate:'グローバルテンプレートを読み込む',playlistMode:'再生モード',modeLoop:'リストループ',modeSequence:'順番再生',modeSingle:'単体ループ',modeRandom:'ランダム再生',playlistItems:'再生素材',addItem:'項目を追加',addFolderItems:'現在フォルダーを追加',folderOrder:'フォルダー再生順',folderOrderAsc:'名前順',folderOrderDesc:'逆順',folderItem:'フォルダー',folderPlayMode:'フォルダー内再生',folderPlayModeSequence:'順番',folderPlayModeRandom:'ランダム',
+        selectionNone:'デバイス未選択',selectionHint:'デバイス一覧で選択するか、各デバイスの設定を開いてください。',selectionCount:(n)=>`${n} 台を選択中`,
+        configTargetNone:'対象デバイス未選択',configTarget:(names)=>`対象: ${names.join('、')}`,playlistHintReady:'ドロワーで素材を選択してください。動画は実時間、画像は秒単位で設定されます。',playlistHintEmpty:'素材がありません。画像または動画を先にアップロードしてください。',
+        emptyDevices:'デバイスはまだありません。クライアントのブロードキャストを待機中です。',emptyAssets:'このフォルダーは空です。',emptyPlaylist:'再生項目はまだありません。「項目を追加」を押してください。',emptyInstallers:'MSI パッケージはまだありません。',emptyRelease:'クライアント更新パッケージはありません。',
+        assetFolder:'フォルダー',open:'開く',preview:'プレビュー',deleteAsset:'素材を削除',deleteFolder:'フォルダー削除',path:'パス',type:'種類',size:'サイズ',product:'製品',version:'バージョン',kind:'種類',previewDialog:'素材プレビュー',previewUnavailable:'この素材はプレビューできません',
+        server:'サーバー',ports:'ポート',approved:'承認済み',online:'オンライン',
+        ip:'IP',platform:'プラットフォーム',lastSeen:'最終確認',pairingCode:'ペアリングコード',install:'インストール',disk:'ディスク',health:'健全性',gpu:'GPU',client:'クライアント',error:'エラー',
+        cpu:'CPU',memory:'メモリ',storage:'ストレージ',connected:'接続中',offline:'オフライン',approvedState:'承認済み',pendingApproval:'承認待ち',selected:'選択中',
+        approve:'承認',configure:'設定',capture:'画面取得',checkVlc:'VLC 確認',reload:'再読込',remoteStart:'クライアント起動',installFirst:'最初の MSI をインストール',pushUpdate:'クライアント更新',quitClient:'クライアント終了',unbindClient:'クライアント解除',
+        download:'ダウンロード',downloadIdle:'待機',downloadWaiting:'保留',downloadRetrying:'再試行中',downloadDownloading:'配信中',downloadStreaming:'ローカル素材庫',downloadCompleted:'完了',downloadFailed:'失敗',speed:'速度',
+        healthUnknown:'不明',healthCritical:'重大',healthWarning:'警告',healthHealthy:'正常',gpuDisabled:'無効',gpuSoftware:'ソフトウェア描画',
+        summaryServerIp:'サーバー IP',summaryDevices:'デバイス総数',summaryOnline:'オンライン台数',summaryAssets:'素材数',summaryInstallers:'MSI 数',summaryLatestClient:'最新クライアント版',
+        statusHttp:'HTTP / WS / UDP',statusApprovedDevices:'承認済みデバイス',statusPairingKey:'ペアリングキー',
+        localLibrarySaved:'ローカル素材庫に保存済み',
+        promptAdminToken:'管理トークンを入力してください',promptFolder:'フォルダー名を入力してください',promptPairing:'画面に表示された 6 桁のペアリングコードを入力してください',confirmDeleteFolder:'このフォルダーと中の素材をすべて削除しますか？',confirmUnbindClient:'このクライアントを解除しますか？再ペアリングが必要になります。',
+        errorSelectFileOrFolder:'ファイルまたはフォルダーを選択してください',errorSelectFile:'ファイルを選択してください',errorAtLeastOne:'少なくとも 1 つの素材を追加してください',errorNoTargets:'対象デバイスが選択されていません',errorNeedSelectedDevice:'少なくとも 1 台を選択してください',errorNoMsi:'MSI ファイルがありません',
+        playbackAsset:'素材',playbackDuration:'再生時間',playbackDurationAuto:'動画の実際の長さを自動使用',playbackDurationSeconds:'再生時間（秒）',moveUp:'上へ',moveDown:'下へ',delete:'削除'
+      }
+    };
+    const viewMeta={devices:{titleKey:'viewDevicesTitle',descKey:'viewDevicesDesc'},assets:{titleKey:'viewAssetsTitle',descKey:'viewAssetsDesc'},installers:{titleKey:'viewInstallersTitle',descKey:'viewInstallersDesc'},status:{titleKey:'viewStatusTitle',descKey:'viewStatusDesc'}};
+    const langButtons={zh:document.getElementById('lang-zh'),en:document.getElementById('lang-en'),ja:document.getElementById('lang-ja')};
+    let currentLang=(window.localStorage.getItem('ad_admin_lang')||'').toLowerCase();
+    if(!locales[currentLang]){ const sys=String(navigator.language||'').toLowerCase(); currentLang=sys.includes('ja')?'ja':sys.includes('zh')?'zh':'en'; }
+    const t=(key,...args)=>{ const value=locales[currentLang]?.[key]??locales.zh[key]??key; return typeof value==='function'?value(...args):value; };
+    let selectedDeviceIds=new Set(); let configTargetIds=[]; let currentAssetDir=''; let currentAssetListing={currentDir:'',parentDir:null,directories:[],files:[]}; let lastHeavyRefreshAt=0; let lastHeavyData={assetListing:{currentDir:'',parentDir:null,directories:[],files:[]},installers:[],release:null}; let lastLightData={status:{httpPort:'-',wsPort:'-',udpPort:'-',serverIp:'',approvedDevices:[],pairingKeyHint:'-'},devices:[]}; let activeView='devices'; let refreshInFlight=false; let pendingHeavyRefresh=false; let assetViewMode=(window.localStorage.getItem('ad_asset_view_mode')||'large'); let adminSocket=null; let dispatchInFlight=false; let activePlaylistIndex=-1;
+    function showError(error){ alert(error.message||String(error)); }
+    function applyLanguage(){ document.getElementById('brandTitle').textContent=t('brandTitle'); document.getElementById('brandDesc').textContent=t('brandDesc'); document.getElementById('sideStatus').textContent=t('waitingStatus'); document.getElementById('navDevicesLabel').textContent=t('navDevicesLabel'); document.getElementById('navDevicesDesc').textContent=t('navDevicesDesc'); document.getElementById('navAssetsLabel').textContent=t('navAssetsLabel'); document.getElementById('navAssetsDesc').textContent=t('navAssetsDesc'); document.getElementById('navInstallersLabel').textContent=t('navInstallersLabel'); document.getElementById('navInstallersDesc').textContent=t('navInstallersDesc'); document.getElementById('navStatusLabel').textContent=t('navStatusLabel'); document.getElementById('navStatusDesc').textContent=t('navStatusDesc'); document.getElementById('sideFoot').textContent=t('sideFoot'); document.getElementById('refreshButton').textContent=t('refresh'); document.getElementById('selectApprovedButton').textContent=t('selectApproved'); document.getElementById('clearSelectedButton').textContent=t('clearSelected'); document.getElementById('batchConfigButton').textContent=t('batchConfig'); document.getElementById('openDrawerButton').textContent=t('openDrawer'); document.getElementById('assetsPanelTitle').textContent=t('assetsPanelTitle'); document.getElementById('assetBackButton').textContent=t('goParent'); document.getElementById('assetNewFolderButton').textContent=t('newFolder'); document.getElementById('assetDropTitle').textContent=t('dropTitle'); document.getElementById('assetDropDesc').textContent=t('dropDesc'); document.getElementById('chooseAssetFileButton').textContent=t('chooseFile'); document.getElementById('chooseAssetFolderButton').textContent=t('chooseFolder'); document.getElementById('uploadAssetButton').textContent=t('uploadAsset'); document.getElementById('assetViewLargeButton').textContent=t('assetViewLarge'); document.getElementById('assetViewThumbButton').textContent=t('assetViewThumb'); document.getElementById('assetViewListButton').textContent=t('assetViewList'); document.getElementById('installersPanelTitle').textContent=t('installersPanelTitle'); document.getElementById('installersPanelDesc').textContent=t('installersPanelDesc'); document.getElementById('uploadInstallerButton').textContent=t('uploadMsi'); document.getElementById('releasePanelTitle').textContent=t('releasePanelTitle'); document.getElementById('releasePanelDesc').textContent=t('releasePanelDesc'); document.getElementById('statusPanelTitle').textContent=t('statusPanelTitle'); document.getElementById('drawerTitle').textContent=t('drawerTitle'); document.getElementById('drawerCloseButton').textContent=t('drawerClose'); document.getElementById('applyConfigButton').textContent=t('applyConfig'); document.getElementById('loadTemplateButton').textContent=t('loadTemplate'); document.getElementById('playlistModeLabel').textContent=t('playlistMode'); document.getElementById('playlistItemsLabel').textContent=t('playlistItems'); document.getElementById('addSelectedAssetButton').textContent=t('addItem'); const playlistMode=document.getElementById('playlistMode'); if(playlistMode){ const modeMap={loop:t('modeLoop'),sequence:t('modeSequence'),single:t('modeSingle'),random:t('modeRandom')}; Array.from(playlistMode.options).forEach((option)=>{ option.textContent=modeMap[option.value]||option.value; }); } document.getElementById('playlistHint').textContent=t('playlistHintEmpty'); renderAssetSelection(); updateApplyButtonState(); }
+    function updateApplyButtonState(done=false){ const button=document.getElementById('applyConfigButton'); if(!button) return; button.disabled=dispatchInFlight; button.textContent=dispatchInFlight?t('applyConfigPending'):(done?t('applyConfigDone'):t('applyConfig')); }
+    function switchView(name){ activeView=name; document.querySelectorAll('.nav button').forEach(btn=>btn.classList.toggle('active',btn.dataset.view===name)); document.querySelectorAll('.view').forEach(view=>view.classList.toggle('active',view.id===`view-${name}`)); document.getElementById('viewTitle').textContent=t(viewMeta[name].titleKey); document.getElementById('viewDesc').textContent=t(viewMeta[name].descKey); if(name!=='devices'){ queueRefresh(true); } }
+    function getAdminToken(){ const expected='AS_LOCAL_ADMIN_20260310'; let token=window.localStorage.getItem('ad_admin_token')||''; token=String(token||'').trim(); if(token!==expected){ window.localStorage.removeItem('ad_admin_token'); token=expected; window.localStorage.setItem('ad_admin_token',token); } return token; }
+    async function request(path,options){
+      const response=await fetch(path,{
+        cache:'no-store',
+        ...(options||{}),
+        headers:{
+          'Cache-Control':'no-store',
+          'Pragma':'no-cache',
+          'x-admin-token':getAdminToken(),
+          ...((options&&options.headers)||{})
+        }
+      });
+      const raw=await response.text();
+      const body=raw?JSON.parse(raw):null;
+      if(!response.ok) throw new Error(body?.error||`Request failed (${response.status})`);
+      return body;
+    }
+    function initWebSocket(){ const scheme=window.location.protocol==='https:'?'wss':'ws'; const socket=new WebSocket(`${scheme}://${window.location.hostname}:3001`); adminSocket=socket; socket.addEventListener('open',()=>{ socket.send(JSON.stringify({type:'REGISTER_ADMIN',adminToken:getAdminToken()})); }); socket.addEventListener('message',(event)=>{ try{ const payload=JSON.parse(event.data); if(payload.type==='DEVICE_PATCH'&&payload.machineId&&payload.patch){ applyDevicePatch(payload.machineId,payload.patch); } }catch(_error){} }); socket.addEventListener('close',()=>{ if(adminSocket===socket){ adminSocket=null; window.setTimeout(initWebSocket,2000); } }); socket.addEventListener('error',()=>{ try{ socket.close(); }catch(_error){} }); }
+    Object.entries(langButtons).forEach(([lang,button])=>button.addEventListener('click',()=>{ currentLang=lang; window.localStorage.setItem('ad_admin_lang',lang); applyLanguage(); refresh().catch(showError); }));
+    function escapeHtml(value=''){ return String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+    function getSelectedAssetFiles(){ const assetFile=document.getElementById('assetFile'); const assetFolder=document.getElementById('assetFolder'); return [assetFile,assetFolder].flatMap(input=>Array.from(input?.files||[])); }
+    function renderAssetSelection(){ const panel=document.getElementById('assetSelection'); const title=document.getElementById('assetSelectionTitle'); const list=document.getElementById('assetSelectionList'); if(!panel||!title||!list) return; const files=getSelectedAssetFiles(); title.textContent=t('selectedAssets',files.length); if(!files.length){ list.innerHTML='<div class="meta">尚未选择素材。</div>'; return; } list.innerHTML=files.slice(0,24).map(file=>{ const label=file.webkitRelativePath||file.name; return `<div class="upload-selection-item"><span title="${escapeHtml(label)}">${escapeHtml(label)}</span><span>${formatFileSize(file.size)}</span></div>`; }).join(''); if(files.length>24){ list.insertAdjacentHTML('beforeend',`<div class="meta">+ ${files.length-24}</div>`); } }
+    async function uploadFiles(inputs,endpoint,extraAppender){ const files=inputs.flatMap(input=>Array.from(input.files||[])); if(!files.length) throw new Error(t('errorSelectFileOrFolder')); const formData=new FormData(); files.forEach(file=>{ formData.append('files',file); formData.append('relativePath',file.webkitRelativePath||file.name); }); if(extraAppender) extraAppender(formData); const response=await fetch(endpoint,{method:'POST',body:formData,headers:{'x-admin-token':getAdminToken()}}); const body=await response.json(); if(!response.ok) throw new Error(body.error||'Upload failed'); inputs.forEach(input=>{ input.value=''; }); renderAssetSelection(); return body; }
+    async function uploadAsset(){ const assetFile=document.getElementById('assetFile'); const assetFolder=document.getElementById('assetFolder'); await uploadFiles([assetFile,assetFolder],'/api/assets/upload',(formData)=>formData.append('baseDir',currentAssetDir)); switchView('assets'); await refresh(true); }
+    async function uploadInstaller(){ await uploadFile('installerFile','/api/installers/upload'); switchView('installers'); await refresh(true); }
+    function chooseAssetFile(){ document.getElementById('assetFile').click(); }
+    function chooseAssetFolder(){ document.getElementById('assetFolder').click(); }
+    function updateAssetViewButtons(){ document.getElementById('assetViewLargeButton').classList.toggle('active',assetViewMode==='large'); document.getElementById('assetViewThumbButton').classList.toggle('active',assetViewMode==='thumb'); document.getElementById('assetViewListButton').classList.toggle('active',assetViewMode==='list'); }
+    function setAssetViewMode(mode){ assetViewMode=['large','thumb','list'].includes(mode)?mode:'large'; window.localStorage.setItem('ad_asset_view_mode',assetViewMode); updateAssetViewButtons(); renderAssets(currentAssetListing); }
+    async function uploadFile(inputId,endpoint){ const input=document.getElementById(inputId); if(!input.files.length) throw new Error(t('errorSelectFile')); const formData=new FormData(); formData.append('file',input.files[0]); const response=await fetch(endpoint,{method:'POST',body:formData,headers:{'x-admin-token':getAdminToken()}}); const body=await response.json(); if(!response.ok) throw new Error(body.error||'Upload failed'); input.value=''; }
+    function removeAssetFromCurrentListing(fileName){ currentAssetListing={...currentAssetListing,files:(currentAssetListing.files||[]).filter(asset=>asset.fileName!==fileName)}; window.__assets=currentAssetListing.files||[]; window.__drawerAssetCatalog=sanitizeCatalog(currentAssetListing.files||[]); renderAssets(currentAssetListing); }
+    function removeFolderFromCurrentListing(folderPath){ currentAssetListing={...currentAssetListing,directories:(currentAssetListing.directories||[]).filter(folder=>folder.path!==folderPath)}; renderAssets(currentAssetListing); }
+    async function deleteAsset(fileName){ const snapshot=JSON.parse(JSON.stringify(currentAssetListing||{})); removeAssetFromCurrentListing(fileName); try{ await request(`/api/assets?path=${encodeURIComponent(fileName)}`,{method:'DELETE'}); await request(`/api/assets?dir=${encodeURIComponent(currentAssetDir||'item')}`).then(renderAssets); }catch(error){ currentAssetListing=snapshot; renderAssets(currentAssetListing); throw error; } }
+    async function deleteAssetFolder(folderPath){ if(!window.confirm(t('confirmDeleteFolder'))) return; const snapshot=JSON.parse(JSON.stringify(currentAssetListing||{})); removeFolderFromCurrentListing(folderPath); try{ await request(`/api/assets/folders?path=${encodeURIComponent(folderPath)}`,{method:'DELETE'}); if(currentAssetDir===folderPath){ currentAssetDir=currentAssetListing.parentDir||''; } await request(`/api/assets?dir=${encodeURIComponent(currentAssetDir||'item')}`).then(renderAssets); }catch(error){ currentAssetListing=snapshot; renderAssets(currentAssetListing); throw error; } }
+    async function createAssetFolder(){ const folderName=window.prompt(t('promptFolder')); if(!folderName) return; await request('/api/assets/folders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:[currentAssetDir,folderName].filter(Boolean).join('/')})}); await refresh(true); }
+    async function approveDevice(machineId){ const pairingCode=window.prompt(t('promptPairing')); if(!pairingCode) return; await request('/api/pair/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({machineId,pairingCode})}); await refresh(); }
+    async function unbindDevice(machineId){ if(!window.confirm(t('confirmUnbindClient'))) return; await request('/api/pair/unbind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({machineId})}); selectedDeviceIds.delete(machineId); await refresh(true); }
+    async function sendCommand(machineId,command,data={}){ await request('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({machineId,command,data})}); }
+    async function handleDeviceCommand(machineId,command,data={}){ try{ await sendCommand(machineId,command,data); await queueRefresh(false); }catch(error){ showError(error); } }
+    async function handleRemoteStart(machineId){ try{ await sendCommand(machineId,'REMOTE_START_CLIENT'); await queueRefresh(false); }catch(error){ showError(error); } }
+    async function dispatchInstaller(machineId,fileName){ await request('/api/installers/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({machineId,fileName})}); }
+    async function dispatchClientRelease(machineId){ await request('/api/client-release/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({machineId})}); }
+    function getApprovedDevices(){ return (window.__devices||[]).filter(device=>device.approved); }
+    function setSelectedDevices(deviceIds){ selectedDeviceIds=new Set(deviceIds); renderSelectionSummary(); renderDevices(window.__devices||[]); }
+    function selectAllApprovedDevices(){ setSelectedDevices(getApprovedDevices().map(device=>device.machineId)); }
+    function clearSelectedDevices(){ setSelectedDevices([]); }
+    function toggleDeviceSelection(machineId,checked){ checked?selectedDeviceIds.add(machineId):selectedDeviceIds.delete(machineId); renderSelectionSummary(); renderDevices(window.__devices||[]); }
+    function renderSelectionSummary(){ const names=getApprovedDevices().filter(device=>selectedDeviceIds.has(device.machineId)).map(device=>device.deviceName||device.machineId); document.getElementById('selectionSummary').textContent=names.length?t('selectionCount',names.length):t('selectionNone'); document.getElementById('selectionHint').textContent=names.length?names.join(currentLang==='en'?', ':'、'):t('selectionHint'); }
+    function setupAssetDropzone(){ const dropzone=document.getElementById('assetDropzone'); const input=document.getElementById('assetFile'); const folderInput=document.getElementById('assetFolder'); ['dragenter','dragover'].forEach(eventName=>dropzone.addEventListener(eventName,(event)=>{ event.preventDefault(); dropzone.classList.add('active'); })); ['dragleave','dragend','drop'].forEach(eventName=>dropzone.addEventListener(eventName,(event)=>{ event.preventDefault(); if(eventName!=='drop'){ dropzone.classList.remove('active'); } })); dropzone.addEventListener('drop',(event)=>{ const files=event.dataTransfer?.files; dropzone.classList.remove('active'); if(files&&files.length){ input.files=files; if(folderInput){ folderInput.value=''; } renderAssetSelection(); } }); [input,folderInput].filter(Boolean).forEach(field=>field.addEventListener('change',()=>{ if(field===input&&folderInput){ folderInput.value=''; } if(field===folderInput&&input){ input.value=''; } renderAssetSelection(); })); renderAssetSelection(); }
+    async function loadPlaylist(machineId=''){ const suffix=machineId?`?machineId=${encodeURIComponent(machineId)}`:''; return request(`/api/playlist${suffix}`); }
+    function getDrawerCatalog(){ return Array.isArray(window.__drawerAssetCatalog)?window.__drawerAssetCatalog:[]; }
+    function getAssetMeta(assetPath=''){ return getDrawerCatalog().find(asset=>asset.fileName===assetPath)||null; }
+    function buildCompactThumb(asset){ if(!asset){ return `<div class="playlist-thumb-card">?</div>`; } if(asset.type==='image'){ return `<img class="playlist-thumb" src="${asset.src}" alt="${asset.fileName}">`; } if(asset.type==='video'){ return `<video class="playlist-thumb" src="${asset.src}#t=0.1" preload="metadata" muted playsinline></video>`; } if(asset.type==='folder'){ return `<div class="playlist-thumb-card">DIR</div>`; } return `<div class="playlist-thumb-card">${String(asset.type||'file').slice(0,3).toUpperCase()}</div>`; }
+    function getDefaultDurationMs(assetPath=''){ return getAssetMeta(assetPath)?.type==='video' ? undefined : 5000; }
+    function formatDurationSeconds(durationMs){ const seconds=Number(durationMs||5000)/1000; return Number.isInteger(seconds)?String(seconds):seconds.toFixed(1); }
+    function createDefaultPlaylistItem(asset){ if(!asset){ return { path:'', durationMs:5000 }; } return asset.type==='video'?{ path:asset.fileName }:{ path:asset.fileName, durationMs:getDefaultDurationMs(asset.fileName) }; }
+    function getFolderPlayModeOptions(selectedValue='sequence'){ const current=String(selectedValue||'sequence').toLowerCase()==='random'?'random':'sequence'; return [`<option value="sequence" ${current==='sequence'?'selected':''}>${t('folderPlayModeSequence')}</option>`,`<option value="random" ${current==='random'?'selected':''}>${t('folderPlayModeRandom')}</option>`].join(''); }
+    function updateDrawerFolderInfo(){ document.getElementById('drawerFolderInfo').textContent='一级菜单：/item'; }
+    function renderDrawerSourceMenu(){ const picker=document.getElementById('drawerAssetPicker'); const entries=[...(currentAssetListing.files||[]).map((file)=>({value:`asset:${file.fileName}`,label:`${file.name||file.fileName} (${file.type})`})),...(currentAssetListing.directories||[]).map((dir)=>({value:`folder:${dir.path}`,label:`[${t('folderItem')}] ${dir.name}`}))]; if(!entries.length){ picker.innerHTML=''; picker.disabled=true; return; } picker.disabled=false; picker.innerHTML=entries.map((entry)=>`<option value="${entry.value}">${entry.label}</option>`).join(''); }
+    function buildPlaylistItemFromPickerValue(selectedValue, previousItem=null){ const separatorIndex=String(selectedValue||'').indexOf(':'); if(separatorIndex<=0) return null; const kind=selectedValue.slice(0,separatorIndex); const targetPath=selectedValue.slice(separatorIndex+1); if(kind==='folder'){ return { path: targetPath, type: 'folder', durationMs: previousItem?.type==='folder' && typeof previousItem?.durationMs==='number' ? previousItem.durationMs : 5000, folderPlayMode: previousItem?.type==='folder' && String(previousItem?.folderPlayMode||'').toLowerCase()==='random' ? 'random' : 'sequence' }; } const assetMeta=getAssetMeta(targetPath); if(!assetMeta) return null; return createDefaultPlaylistItem(assetMeta); }
+    function syncDrawerSelectionToTargetItem(){ const picker=document.getElementById('drawerAssetPicker'); const selectedValue=picker?.value||''; if(!selectedValue) return; const state=safeGetEditorState(); let targetIndex=activePlaylistIndex; if(targetIndex<0||targetIndex>=state.items.length){ targetIndex=state.items.length===1?0:-1; } if(targetIndex<0) return; const nextItem=buildPlaylistItemFromPickerValue(selectedValue, state.items[targetIndex]||null); if(!nextItem) return; state.items[targetIndex]=nextItem; activePlaylistIndex=targetIndex; setEditorState(state); }
+    function setEditorState(payload){ 
+      const catalog=getDrawerCatalog(); 
+      const items=Array.isArray(payload.items)?payload.items.filter(item=>{ 
+        const assetPath=item?.path||item?.fileName||''; 
+        if(!assetPath) return false; 
+        if(item?.type==='folder') return true; 
+        return catalog.some(asset=>asset.fileName===assetPath); 
+      }):[]; 
+      const normalized={mode:payload.mode||'loop',items:items.length?items:(catalog.length?[createDefaultPlaylistItem(catalog[0])]:[])}; 
+      if(!normalized.items.length){ activePlaylistIndex=-1; } else if(activePlaylistIndex<0||activePlaylistIndex>=normalized.items.length){ activePlaylistIndex=0; }
+      document.getElementById('playlistMode').value=normalized.mode; 
+      renderPlaylistItems(normalized.items); 
+    }
+    function setActivePlaylistIndex(index){ activePlaylistIndex=index; renderPlaylistItems(safeGetEditorState().items); }
+    function renderPlaylistItems(items){ 
+      const root=document.getElementById('playlistItems'); 
+      if(!items.length){ root.innerHTML=`<div class="empty">${t('emptyPlaylist')}</div>`; return; } 
+      root.innerHTML=items.map((item,index)=>{ 
+        const assetPath=item.path||item.fileName||''; 
+        const isFolder=item.type==='folder'; 
+        const assetMeta=isFolder?{type:'folder',fileName:assetPath,name:assetPath.split('/').pop()||assetPath}:getAssetMeta(assetPath); 
+        const assetName=assetMeta?.name||assetMeta?.fileName||assetPath; 
+        const durationControl=(isFolder||assetMeta?.type==='image')?`<input class="playlist-inline-input" data-role="duration-seconds" data-index="${index}" type="number" min="1" step="1" value="${formatDurationSeconds(item.durationMs||5000)}" title="${t('playbackDurationSeconds')}" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">`:''; 
+        const folderModeControl=isFolder?`<select class="playlist-inline-select" data-role="folder-play-mode" data-index="${index}" title="${t('folderPlayMode')}" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">${getFolderPlayModeOptions(item.folderPlayMode||'sequence')}</select>`:'';
+        return `
+          <article class="playlist-item ${activePlaylistIndex===index?'active':''}" data-index="${index}" onclick="setActivePlaylistIndex(${index})">
+            <div class="asset-list-row">
+              <input data-role="path" data-index="${index}" type="hidden" value="${assetPath}">
+              <input data-role="kind" data-index="${index}" type="hidden" value="${isFolder?'folder':'asset'}">
+              <div class="playlist-index">${index+1}</div>
+              <div class="playlist-thumb-container">${buildCompactThumb(assetMeta)}</div>
+              <div class="asset-list-body">
+                <strong class="asset-title">${assetName}</strong>
+                <div class="playlist-path-meta">${formatDisplayText(assetPath)}</div>
+              </div>
+              <div class="playlist-folder-mode-slot">${folderModeControl}</div>
+              <div class="playlist-duration-slot">${durationControl}</div>
+              <div class="playlist-controls">
+                <button type="button" class="ghost" onclick="event.stopPropagation(); movePlaylistItem(${index},-1)">↑</button>
+                <button type="button" class="ghost" onclick="event.stopPropagation(); movePlaylistItem(${index},1)">↓</button>
+                <button type="button" class="danger" onclick="event.stopPropagation(); removePlaylistItem(${index})">×</button>
+              </div>
+            </div>
+          </article>`; 
+      }).join(''); 
+    }
+    function getEditorState(){ const payload={mode:document.getElementById('playlistMode').value,items:[]}; const paths=Array.from(document.querySelectorAll('[data-role="path"]')); const kinds=Array.from(document.querySelectorAll('[data-role="kind"]')); for(let index=0; index<paths.length; index+=1){ const assetPath=paths[index].value; const kind=kinds[index]?.value||'asset'; if(!assetPath) continue; const durationInput=document.querySelector(`[data-role="duration-seconds"][data-index="${index}"]`); const durationSeconds=Number(durationInput?.value||5); if(kind==='folder'){ const folderPlayModeInput=document.querySelector(`[data-role="folder-play-mode"][data-index="${index}"]`); payload.items.push({path:assetPath,type:'folder',durationMs:Math.max(1,durationSeconds)*1000,folderPlayMode:String(folderPlayModeInput?.value||'sequence').toLowerCase()==='random'?'random':'sequence'}); continue; } const assetMeta=getAssetMeta(assetPath); if(assetMeta?.type==='video'){ payload.items.push({path:assetPath}); continue; } payload.items.push({path:assetPath,durationMs:Math.max(1,durationSeconds)*1000}); } if(!payload.items.length) throw new Error(t('errorAtLeastOne')); return payload; }
+    function safeGetEditorState(){ try{ return getEditorState(); }catch(_error){ return {mode:document.getElementById('playlistMode').value,items:[]}; } }
+    function addAssetToPlaylist(assetPath){ const assetMeta=getAssetMeta(assetPath); if(!assetMeta) return; const state=safeGetEditorState(); state.items.push(createDefaultPlaylistItem(assetMeta)); activePlaylistIndex=state.items.length-1; setEditorState(state); if(!document.getElementById('configDrawer').classList.contains('open')){ openConfigDrawerWithTargets(Array.from(selectedDeviceIds)); } }
+    function addPlaylistItem(){ addSelectedDrawerEntry(); }
+    function addSelectedDrawerEntry(){ const picker=document.getElementById('drawerAssetPicker'); const selectedValue=picker?.value||''; if(!selectedValue) return; const state=safeGetEditorState(); const nextItem=buildPlaylistItemFromPickerValue(selectedValue, null); if(!nextItem) return; state.items.push(nextItem); activePlaylistIndex=state.items.length-1; setEditorState(state); }
+    function addFolderToPlaylist(folderPath){ const state=safeGetEditorState(); const normalizedDir=(folderPath||currentAssetDir||'item').replace(/^\/+/, ''); state.items.push({path:normalizedDir,type:'folder',durationMs:5000,folderPlayMode:'sequence'}); activePlaylistIndex=state.items.length-1; setEditorState(state); if(!document.getElementById('configDrawer').classList.contains('open')){ openConfigDrawerWithTargets(Array.from(selectedDeviceIds)); } }
+    function updatePlaylistItemPath(index,assetPath){ const state=safeGetEditorState(); const defaultDurationMs=getDefaultDurationMs(assetPath); state.items[index]={...state.items[index],path:assetPath}; delete state.items[index].type; if(typeof defaultDurationMs==='number'){ state.items[index].durationMs=typeof state.items[index].durationMs==='number'?state.items[index].durationMs:defaultDurationMs; } else { delete state.items[index].durationMs; } setEditorState(state); }
+    function removePlaylistItem(index){ const state=safeGetEditorState(); state.items.splice(index,1); if(!state.items.length){ activePlaylistIndex=-1; } else if(activePlaylistIndex>=state.items.length){ activePlaylistIndex=state.items.length-1; } else if(activePlaylistIndex===index){ activePlaylistIndex=Math.max(0,index-1); } setEditorState(state); }
+    function movePlaylistItem(index,delta){ const state=safeGetEditorState(); const nextIndex=index+delta; if(nextIndex<0||nextIndex>=state.items.length) return; const [item]=state.items.splice(index,1); state.items.splice(nextIndex,0,item); if(activePlaylistIndex===index){ activePlaylistIndex=nextIndex; } else if(activePlaylistIndex===nextIndex){ activePlaylistIndex=index; } setEditorState(state); }
+    function updateConfigTargetText(){ const names=(window.__devices||[]).filter(device=>configTargetIds.includes(device.machineId)).map(device=>device.deviceName||device.machineId); document.getElementById('configTargetText').textContent=names.length?t('configTarget',names):t('configTargetNone'); }
+    function openAssetDir(dir=''){ currentAssetDir=dir||''; if(document.getElementById('configDrawer').classList.contains('open')){ refreshDrawerAssetCatalog().then(()=>setEditorState(safeGetEditorState())).catch(showError); return; } queueRefresh(true); }
+    function goToParentAssetDir(){ if(!currentAssetListing.parentDir&&currentAssetListing.parentDir!=='') return; openAssetDir(currentAssetListing.parentDir||''); }
+    function openConfigDrawerWithTargets(machineIds){ configTargetIds=Array.from(new Set(machineIds.filter(Boolean))); updateConfigTargetText(); document.getElementById('drawerBackdrop').classList.add('open'); document.getElementById('configDrawer').classList.add('open'); }
+    function closeConfigDrawer(){ document.getElementById('drawerBackdrop').classList.remove('open'); document.getElementById('configDrawer').classList.remove('open'); configTargetIds=[]; activePlaylistIndex=-1; updateConfigTargetText(); }
+    function sanitizeCatalog(assetCatalog){ const seen=new Set(); return (assetCatalog||[]).filter(asset=>asset&&asset.fileName&&['image','video','text'].includes(asset.type)).filter(asset=>{ if(seen.has(asset.fileName)) return false; seen.add(asset.fileName); return true; }).sort((left,right)=>String(left.fileName).localeCompare(String(right.fileName),undefined,{numeric:true,sensitivity:'base'})); }
+    function sanitizePlaylistPayload(payload){ const validAssetPaths=new Set(getDrawerCatalog().map(asset=>asset.fileName)); const nextItems=Array.isArray(payload?.items)?payload.items.filter(item=>{ const assetPath=item?.path||item?.fileName||''; if(item?.type==='folder') return Boolean(assetPath); return assetPath&&validAssetPaths.has(assetPath); }):[]; return { mode: payload?.mode||'loop', items: nextItems }; }
+    async function refreshDrawerAssetCatalog(){ const assetListing=await request('/api/assets?dir=item'); currentAssetListing=assetListing||{currentDir:'item',parentDir:null,directories:[],files:[]}; const sanitizedCatalog=sanitizeCatalog(assetListing.files||[]); window.__drawerAssetCatalog=sanitizedCatalog; updateDrawerFolderInfo(); renderDrawerSourceMenu(); document.getElementById('playlistHint').textContent=((currentAssetListing.directories||[]).length||sanitizedCatalog.length)?t('playlistHintReady'):t('playlistHintEmpty'); }
+    async function openBatchConfig(){ const machineIds=Array.from(selectedDeviceIds); openConfigDrawerWithTargets(machineIds); await refreshDrawerAssetCatalog(); if(machineIds.length){ setEditorState(sanitizePlaylistPayload(await loadPlaylist(machineIds.length===1?machineIds[0]:''))); return; } setEditorState({mode:document.getElementById('playlistMode').value||'loop',items:[]}); document.getElementById('playlistHint').textContent=getDrawerCatalog().length?t('playlistHintReady'):t('playlistHintEmpty'); }
+    async function openSingleConfig(machineId){ setSelectedDevices([machineId]); openConfigDrawerWithTargets([machineId]); await refreshDrawerAssetCatalog(); setEditorState(sanitizePlaylistPayload(await loadPlaylist(machineId))); }
+    async function loadGlobalTemplate(){ await refreshDrawerAssetCatalog(); const state=sanitizePlaylistPayload(await loadPlaylist('')); setEditorState(state); }
+    async function applyConfigToTargets(){ if(dispatchInFlight) return; if(!configTargetIds.length) throw new Error(t('errorNoTargets')); syncDrawerSelectionToTargetItem(); const payload=getEditorState(); dispatchInFlight=true; document.getElementById('playlistHint').textContent=t('applyConfigPending'); updateApplyButtonState(); try{ if(configTargetIds.length===1){ await request('/api/playlist/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({machineId:configTargetIds[0],mode:payload.mode,items:payload.items})}); } else { await request('/api/playlist/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({machineIds:configTargetIds,mode:payload.mode,items:payload.items})}); } document.getElementById('playlistHint').textContent=t('applyConfigDone'); updateApplyButtonState(true); await refresh(true); } catch (error) { document.getElementById('playlistHint').textContent=error.message||String(error); throw error; } finally { dispatchInFlight=false; window.setTimeout(()=>{ updateApplyButtonState(false); if(document.getElementById('configDrawer').classList.contains('open')){ document.getElementById('playlistHint').textContent=getDrawerCatalog().length?t('playlistHintReady'):t('playlistHintEmpty'); } },1200); } }
+    function formatDiskUsage(diskUsage){ if(!diskUsage||typeof diskUsage.totalBytes!=='number'||typeof diskUsage.quotaBytes!=='number') return '-'; const driveLabel=diskUsage.drive?`${diskUsage.drive} `:''; return `${driveLabel}${formatFileSize(diskUsage.totalBytes)} / ${formatFileSize(diskUsage.quotaBytes)}`; }
+    function formatDiskHealth(diskUsage){ if(!diskUsage||typeof diskUsage.totalBytes!=='number'||!diskUsage.quotaBytes) return t('healthUnknown'); const ratio=diskUsage.totalBytes/diskUsage.quotaBytes; if(ratio>=.9) return t('healthCritical'); if(ratio>=.75) return t('healthWarning'); return t('healthHealthy'); }
+    function formatGpuHealth(gpuStatus){ if(!gpuStatus||typeof gpuStatus!=='object') return t('healthUnknown'); const values=Object.values(gpuStatus); if(values.some(value=>String(value).toLowerCase().includes('disabled'))) return t('gpuDisabled'); if(values.some(value=>String(value).toLowerCase().includes('software'))) return t('gpuSoftware'); return t('healthHealthy'); }
+    function formatFileSize(bytes){ const size=Number(bytes||0); if(!Number.isFinite(size)||size<=0) return '0 B'; const units=['B','KB','MB','GB','TB']; let value=size; let index=0; while(value>=1024&&index<units.length-1){ value/=1024; index+=1; } return `${value>=100||index===0?value.toFixed(0):value.toFixed(1)} ${units[index]}`; }
+    function formatDisplayText(value=''){ return String(value||'').replace(/妗岄潰鑳屾櫙/g,'桌面背景'); }
+    function formatStorageDevices(device){ const items=Array.isArray(device.storageDevices)?device.storageDevices:[]; if(!items.length){ return '-'; } return items.map(item=>`${item.drive} ${formatFileSize(item.usedBytes)} / ${formatFileSize(item.totalBytes)}`).join(' | '); }
+    function formatDownloadState(state){ const key=`download${String(state||'idle').charAt(0).toUpperCase()}${String(state||'idle').slice(1)}`; return t(key); }
+    function renderDownloadStatus(device){ const entries=Object.values(device.downloadStatus||{}).filter(Boolean).sort((left,right)=>{ const leftRank=left.scope==='push'?2:1; const rightRank=right.scope==='push'?2:1; if(rightRank!==leftRank){ return rightRank-leftRank; } return (Date.parse(right.updatedAt||0)||0)-(Date.parse(left.updatedAt||0)||0); }); if(!entries.length){ return `<div class="meta" data-role="download-idle">${t('download')}: ${t('downloadIdle')}</div>`; } const status=entries[0]; const percent=typeof status.percent==='number'&&Number.isFinite(status.percent)?status.percent:null; const scopeLabel=status.scope==='push'?'PUSH':status.scope==='media'?'MEDIA':String(status.scope||'').toUpperCase(); const detail=[formatDisplayText(status.fileName||'-'),formatDownloadState(status.state)]; if(typeof status.downloadedBytes==='number'){ detail.push(`${formatFileSize(status.downloadedBytes)} / ${formatFileSize(status.totalBytes||0)}`); } if(typeof status.bytesPerSecond==='number'&&status.bytesPerSecond>0){ detail.push(`${t('speed')}: ${formatFileSize(status.bytesPerSecond)}/s`); } if(status.state==='completed'&&status.targetPath){ detail.push(t('localLibrarySaved')); } if(status.error){ detail.push(formatDisplayText(status.error)); } return `<div class="metric" data-role="download-block" style="margin-top:8px;"><div class="metric-head"><span data-role="download-head">${t('download')} · ${scopeLabel}</span><span data-role="download-percent">${percent===null?formatDownloadState(status.state):`${percent.toFixed(1)}%`}</span></div><div class="meter"><span data-role="download-meter" style="width:${percent===null?0:Math.max(0,Math.min(100,percent))}%"></span></div><div class="meta" data-role="download-detail">${detail.join(' | ')}</div></div>`; }
+    function getAssetByPath(assetPath){ return getDrawerCatalog().find(asset=>asset.fileName===assetPath)||null; }
+    function openAssetPreviewByPath(assetPath){ openAssetPreview(getAssetByPath(assetPath)); }
+    function openAssetPreview(asset){ const modal=document.getElementById('previewModal'); const backdrop=document.getElementById('previewBackdrop'); const stage=document.getElementById('previewStage'); document.getElementById('previewTitle').textContent=asset?.name||asset?.fileName||t('previewDialog'); document.getElementById('previewMeta').textContent=`${t('type')}：${asset?.type||'-'} | ${t('size')}：${formatFileSize(asset?.size)}`; if(!asset||!asset.src){ stage.innerHTML=`<div class="empty">${t('previewUnavailable')}</div>`; } else if(asset.type==='image'){ stage.innerHTML=`<img src="${asset.src}" alt="${asset.fileName||'preview'}">`; } else if(asset.type==='video'){ stage.innerHTML=`<video src="${asset.src}" controls autoplay playsinline></video>`; } else { stage.innerHTML=`<div class="empty">${t('previewUnavailable')}</div>`; } backdrop.classList.add('open'); modal.classList.add('open'); }
+    function closeAssetPreview(){ document.getElementById('previewBackdrop').classList.remove('open'); document.getElementById('previewModal').classList.remove('open'); document.getElementById('previewStage').innerHTML=''; }
+    function formatPercent(value){ return typeof value==='number'&&Number.isFinite(value)?`${value.toFixed(1)}%`:'-'; }
+    function meter(label,percent,detail){ const width=typeof percent==='number'&&Number.isFinite(percent)?Math.max(0,Math.min(100,percent)):0; return `<div class="metric"><div class="metric-head"><span>${label}</span><span>${detail}</span></div><div class="meter"><span style="width:${width}%"></span></div></div>`; }
+    function buildDeviceMetrics(device){ const cpuPercent=device.cpuUsage?.percent; const memoryPercent=device.memoryUsage?.percent; const storagePercent=device.diskUsage?.quotaBytes?Number(((device.diskUsage.totalBytes/device.diskUsage.quotaBytes)*100).toFixed(1)):null; return `<div class="metric-grid"><div class="metric"><div class="metric-head"><span>${t('cpu')}</span><span data-role="cpu-detail">${formatPercent(cpuPercent)}${device.cpuUsage?.cores?` / ${device.cpuUsage.cores}C`:''}</span></div><div class="meter"><span data-role="cpu-meter" style="width:${typeof cpuPercent==='number'&&Number.isFinite(cpuPercent)?Math.max(0,Math.min(100,cpuPercent)):0}%"></span></div></div><div class="metric"><div class="metric-head"><span>${t('memory')}</span><span data-role="memory-detail">${device.memoryUsage?.totalBytes?`${formatPercent(memoryPercent)} / ${(device.memoryUsage.totalBytes/1024/1024/1024).toFixed(1)} GB`:'-'}</span></div><div class="meter"><span data-role="memory-meter" style="width:${typeof memoryPercent==='number'&&Number.isFinite(memoryPercent)?Math.max(0,Math.min(100,memoryPercent)):0}%"></span></div></div><div class="metric"><div class="metric-head"><span>${t('storage')}</span><span data-role="storage-detail">${formatDiskUsage(device.diskUsage)}</span></div><div class="meter"><span data-role="storage-meter" style="width:${typeof storagePercent==='number'&&Number.isFinite(storagePercent)?Math.max(0,Math.min(100,storagePercent)):0}%"></span></div></div></div>`; }
+    function updateMeter(card,role,value){ const meterEl=card.querySelector(`[data-role="${role}"]`); if(!meterEl) return; const width=typeof value==='number'&&Number.isFinite(value)?Math.max(0,Math.min(100,value)):0; meterEl.style.width=`${width}%`; }
+    function mergeDevicePatch(machineId,patch){ window.__devices=(window.__devices||[]).map(device=>device.machineId===machineId?{...device,...patch,downloadStatus:patch.downloadStatus?{...(device.downloadStatus||{}),...patch.downloadStatus}:device.downloadStatus}:device); }
+    function updateDeviceCard(machineId){ const device=(window.__devices||[]).find(item=>item.machineId===machineId); const card=document.querySelector(`[data-machine-id="${machineId}"]`); if(!device||!card) return; const cpuPercent=device.cpuUsage?.percent; const memoryPercent=device.memoryUsage?.percent; const storagePercent=device.diskUsage?.quotaBytes?Number(((device.diskUsage.totalBytes/device.diskUsage.quotaBytes)*100).toFixed(1)):null; const storageDevices=card.querySelector('[data-role="storage-devices"]'); if(storageDevices){ storageDevices.textContent=formatStorageDevices(device); } const mediaPath=card.querySelector('[data-role="media-path"]'); if(mediaPath){ mediaPath.textContent=device.mediaLibraryPath||'-'; } const gpuLine=card.querySelector('[data-role="gpu-line"]'); if(gpuLine){ gpuLine.textContent=`${t('gpu')}: ${formatGpuHealth(device.gpuStatus)} ${device.clientVersion?`| ${t('client')}: ${device.clientVersion}`:''}`; } const errorLine=card.querySelector('[data-role="error-line"]'); if(errorLine){ errorLine.textContent=`${t('error')}: ${device.lastError||'-'} ${device.errorUpdatedAt?`(${device.errorUpdatedAt})`:''}`; } const downloadHost=card.querySelector('[data-role="download-host"]'); if(downloadHost){ downloadHost.innerHTML=renderDownloadStatus(device); } const cpuDetail=card.querySelector('[data-role="cpu-detail"]'); if(cpuDetail){ cpuDetail.textContent=`${formatPercent(cpuPercent)}${device.cpuUsage?.cores?` / ${device.cpuUsage.cores}C`:''} ${device.mediaLibraryPath||'-'}`; } const memoryDetail=card.querySelector('[data-role="memory-detail"]'); if(memoryDetail){ memoryDetail.textContent=device.memoryUsage?.totalBytes?`${formatPercent(memoryPercent)} / ${(device.memoryUsage.totalBytes/1024/1024/1024).toFixed(1)} GB`:'-'; } const storageDetail=card.querySelector('[data-role="storage-detail"]'); if(storageDetail){ storageDetail.textContent=formatDiskUsage(device.diskUsage); } updateMeter(card,'cpu-meter',cpuPercent); updateMeter(card,'memory-meter',memoryPercent); updateMeter(card,'storage-meter',storagePercent); }
+    function applyDevicePatch(machineId,patch){ mergeDevicePatch(machineId,patch); updateDeviceCard(machineId); }
+    function renderSideStatus(status,devices){ document.getElementById('sideStatus').innerHTML=`${t('server')}: ${status.serverIp||'-'}<br>${t('ports')}: ${status.httpPort}/${status.wsPort}/${status.udpPort}<br>${t('approved')}: ${status.approvedDevices.length}<br>${t('online')}: ${devices.filter(device=>device.connected).length}`; }
+    function renderAssets(listing){ 
+      const root=document.getElementById('assetGrid'); 
+      currentAssetListing=listing||{currentDir:'',parentDir:null,directories:[],files:[]}; 
+      root.className=`asset-grid mode-${assetViewMode}`; 
+      document.getElementById('assetCurrentDir').textContent=`${t('currentDir')}：/${currentAssetListing.currentDir||''}`; 
+      
+      const directoryAddAction=(dirPath)=>`<button class="icon-button" title="${t('addFolderItems')}" data-folder-path="${escapeHtml(dirPath)}" onclick="addFolderToPlaylist(this.dataset.folderPath)" style="background:var(--ok); color:#fff; border:0;">+</button>`;
+      const fileAddAction=(filePath)=>`<button class="icon-button" title="${t('addItem')}" data-file-path="${escapeHtml(filePath)}" onclick="addAssetToPlaylist(this.dataset.filePath)" style="background:var(--ok); color:#fff; border:0;">+</button>`;
+      
+      const directories=(currentAssetListing.directories||[]).map(dir=>{
+        const metaInfo = `<div class="meta">${t('assetFolder')}</div>`;
+        const actions = `
+          <div class="asset-actions" style="margin-top:12px;">
+            <button data-folder-path="${escapeHtml(dir.path)}" onclick="openAssetDir(this.dataset.folderPath)">${t('open')}</button>
+            ${directoryAddAction(dir.path)}
+            <button class="danger" data-folder-path="${escapeHtml(dir.path)}" onclick="deleteAssetFolder(this.dataset.folderPath).catch(showError)">${t('deleteFolder')}</button>
+          </div>`;
+        
+        if(assetViewMode==='list'){
+          return `
+            <article class="asset asset-list-row">
+              <div class="preview-card" style="height:48px; margin:0;"><div style="font-size:10px;">DIR</div></div>
+              <div class="asset-list-body">
+                <strong class="asset-title">${dir.name}</strong>
+                <div class="meta" style="opacity:0.6;">${dir.path}</div>
+              </div>
+              <div class="asset-actions">
+                <button data-folder-path="${escapeHtml(dir.path)}" onclick="openAssetDir(this.dataset.folderPath)">${t('open')}</button>
+                ${directoryAddAction(dir.path)}
+                <button class="danger" data-folder-path="${escapeHtml(dir.path)}" onclick="deleteAssetFolder(this.dataset.folderPath).catch(showError)">${t('deleteFolder')}</button>
+              </div>
+            </article>`;
+        }
+        return `
+          <article class="asset">
+            <strong class="asset-title">${dir.name}</strong>
+            <div class="meta asset-meta">${metaInfo}</div>
+            ${actions}
+          </article>`;
+      });
+
+      const files=(currentAssetListing.files||[]).map(asset=>{ 
+        const preview=asset.type==='image'
+          ?`<img class="preview" src="${asset.src}" alt="${asset.fileName}">`
+          :asset.type==='video'
+            ?`<video class="preview" src="${asset.src}#t=0.1" preload="metadata" muted playsinline></video>`
+            :`<div class="preview-card"><div style="text-align:center;"><strong>${asset.type.toUpperCase()}</strong></div></div>`; 
+        
+        const metaInfo = `<div class="meta" style="opacity:0.6; font-size:11px;">${asset.fileName} | ${asset.type.toUpperCase()} | ${formatFileSize(asset.size)}</div>`;
+        const actions = `
+          <div class="asset-actions" style="margin-top:12px;">
+            ${fileAddAction(asset.fileName)}
+            <button onclick='openAssetPreview(${JSON.stringify(asset).replace(/'/g,"&#39;")})'>${t('preview')}</button>
+            <button class="danger" data-file-path="${escapeHtml(asset.fileName)}" onclick="deleteAsset(this.dataset.filePath).catch(showError)">${t('deleteAsset')}</button>
+          </div>`;
+
+        if(assetViewMode==='list'){
+          return `
+            <article class="asset asset-list-row">
+              <div style="width:140px; height:80px; overflow:hidden; border-radius:10px;">${preview}</div>
+              <div class="asset-list-body">
+                <strong class="asset-title">${asset.name||asset.fileName}</strong>
+                ${metaInfo}
+              </div>
+              <div class="asset-actions">
+                ${fileAddAction(asset.fileName)}
+                <button onclick='openAssetPreview(${JSON.stringify(asset).replace(/'/g,"&#39;")})'>${t('preview')}</button>
+                <button class="danger" data-file-path="${escapeHtml(asset.fileName)}" onclick="deleteAsset(this.dataset.filePath).catch(showError)">×</button>
+              </div>
+            </article>`;
+        }
+        return `
+          <article class="asset">
+            <strong class="asset-title">${asset.name||asset.fileName}</strong>
+            <div class="asset-meta">${metaInfo}</div>
+            ${preview}
+            ${actions}
+          </article>`; 
+      }); 
+
+      const items=[...directories,...files]; 
+      if(!items.length){ root.innerHTML=`<div class="empty">${t('emptyAssets')}</div>`; return; } 
+      root.innerHTML=items.join(''); 
+    }
+    function renderInstallers(installers){ const root=document.getElementById('installerList'); if(!installers.length){ root.innerHTML=`<div class="empty">${t('emptyInstallers')}</div>`; return; } root.innerHTML=installers.map(item=>`<article class="library"><strong>${item.fileName}</strong><div class="meta">${t('product')}：${item.productName||'-'} | ${t('size')}：${item.size}</div></article>`).join(''); }
+    function renderReleaseList(release){ const root=document.getElementById('releaseList'); root.innerHTML=release?`<article class="library"><strong>${release.fileName}</strong><div class="meta">${t('version')}：${release.version} | ${t('kind')}：${release.kind} | ${t('size')}：${release.size}</div></article>`:`<div class="empty">${t('emptyRelease')}</div>`; }
+    async function dispatchInstallerToDevice(machineId){ const first=(window.__installers||[])[0]; if(!first) throw new Error(t('errorNoMsi')); await dispatchInstaller(machineId,first.fileName); }
+    function renderDevices(devices){ const list=document.getElementById('deviceList'); if(!devices.length){ list.innerHTML=`<div class="empty">${t('emptyDevices')}</div>`; return; } list.innerHTML=devices.map(device=>{ const metrics=buildDeviceMetrics(device); const downloadStatus=renderDownloadStatus(device); return `<article class="device" data-machine-id="${device.machineId}"><div class="device-head"><div class="device-title">${device.approved?`<input type="checkbox" ${selectedDeviceIds.has(device.machineId)?'checked':''} onchange="toggleDeviceSelection('${device.machineId}', this.checked)">`:''}<div class="device-subhead"><strong>${device.deviceName||device.machineId}</strong><div class="meta" style="margin-top:0;">${device.machineId}</div></div></div><div class="badges"><span class="badge online">${device.connected?t('connected'):t('offline')}</span><span class="badge ${device.approved?'':'pending'}">${device.approved?t('approvedState'):t('pendingApproval')}</span>${selectedDeviceIds.has(device.machineId)?`<span class="badge selected">${t('selected')}</span>`:''}</div></div><div class="device-meta-grid"><div class="device-meta-chip"><strong>${t('ip')}</strong><span>${device.ip||'-'}</span></div><div class="device-meta-chip"><strong>${t('platform')}</strong><span>${device.platform||'-'}</span></div><div class="device-meta-chip"><strong>${t('lastSeen')}</strong><span>${device.lastSeen||'-'}</span></div><div class="device-meta-chip"><strong>${t('pairingCode')}</strong><span>${device.pairingCode||'-'}</span></div></div><div class="device-section"><div class="device-section-title">System</div><div class="meta">${t('install')}: ${device.installStatus||'-'} ${device.installMessage?`| ${device.installMessage}`:''}</div><div class="meta">${t('storage')}: <span data-role="storage-devices">${formatStorageDevices(device)}</span></div><div class="meta">${t('path')}: <span data-role="media-path">${device.mediaLibraryPath||'-'}</span></div></div><div class="device-section">${metrics}</div><div class="device-section"><div class="device-section-title">Transport</div><div data-role="download-host">${downloadStatus}</div><div class="meta" data-role="gpu-line">${t('gpu')}: ${formatGpuHealth(device.gpuStatus)} ${device.clientVersion?`| ${t('client')}: ${device.clientVersion}`:''}</div><div class="meta" data-role="error-line" style="color:var(--accent)">${t('error')}: ${device.lastError||'-'} ${device.errorUpdatedAt?`(${device.errorUpdatedAt})`:''}</div></div>${device.lastScreenshotUrl?`<div class="device-section"><div class="device-section-title">Preview</div><img class="preview" src="${device.lastScreenshotUrl}" alt="screenshot" style="margin-top:0;"></div>`:''}<div class="device-foot"><div class="actions compact">${device.approved?'':`<button class="primary" onclick="approveDevice('${device.machineId}')">${t('approve')}</button>`}${device.approved?`<button class="primary" onclick="openSingleConfig('${device.machineId}')">${t('configure')}</button><button class="danger" onclick="unbindDevice('${device.machineId}')">${t('unbindClient')}</button>`:''}<button onclick="handleDeviceCommand('${device.machineId}', 'CAPTURE_SCREEN')">${t('capture')}</button><button onclick="handleDeviceCommand('${device.machineId}', 'CHECK_ENV', { softwareName: 'VLC' })">${t('checkVlc')}</button><button onclick="handleDeviceCommand('${device.machineId}', 'RELOAD_PLAYER')">${t('reload')}</button><button onclick="handleDeviceCommand('${device.machineId}', 'QUIT_CLIENT')">${t('quitClient')}</button><button onclick="handleRemoteStart('${device.machineId}')">${t('remoteStart')}</button><button onclick="dispatchInstallerToDevice('${device.machineId}')">${t('installFirst')}</button><button onclick="dispatchClientRelease('${device.machineId}')">${t('pushUpdate')}</button></div></div></article>`; }).join(''); }
+    function renderStatus(status,devices,assets,installers,release){ document.getElementById('summaryGrid').innerHTML=`<article class="summary"><strong>${status.serverIp||'-'}</strong><div class="meta">${t('summaryServerIp')}</div></article><article class="summary"><strong>${devices.length}</strong><div class="meta">${t('summaryDevices')}</div></article><article class="summary"><strong>${devices.filter(device=>device.connected).length}</strong><div class="meta">${t('summaryOnline')}</div></article><article class="summary"><strong>${assets.length}</strong><div class="meta">${t('summaryAssets')}</div></article><article class="summary"><strong>${installers.length}</strong><div class="meta">${t('summaryInstallers')}</div></article><article class="summary"><strong>${release?release.version:'-'}</strong><div class="meta">${t('summaryLatestClient')}</div></article>`; document.getElementById('statusList').innerHTML=[[t('statusHttp'),`${status.httpPort} / ${status.wsPort} / ${status.udpPort}`],[t('statusApprovedDevices'),String(status.approvedDevices.length)],[t('statusPairingKey'),status.pairingKeyHint]].map(([label,value])=>`<article class="status"><strong>${label}</strong><div class="meta">${value}</div></article>`).join(''); }
+    async function refresh(forceHeavy=false){ if(refreshInFlight){ pendingHeavyRefresh=pendingHeavyRefresh||Boolean(forceHeavy); return; } refreshInFlight=true; try{ const now=Date.now(); const drawerOpen=document.getElementById('configDrawer').classList.contains('open'); const normalizedDir=currentAssetDir||'item'; const heavyAllowed=forceHeavy||drawerOpen||activeView==='assets'||activeView==='installers'||activeView==='status'; const shouldRefreshHeavy=heavyAllowed&&(!lastHeavyRefreshAt||(now-lastHeavyRefreshAt)>=10000||forceHeavy); const statusPromise=request('/api/status'); const devicesPromise=request('/api/devices'); const heavyPromises=shouldRefreshHeavy?Promise.all([request(`/api/assets?dir=${encodeURIComponent(normalizedDir)}`),request('/api/installers'),request('/api/client-release/latest').catch(()=>null)]):Promise.resolve([lastHeavyData.assetListing,lastHeavyData.installers,lastHeavyData.release]); const [statusResponse,devicesResponse,[assetListing,installers,release]]=await Promise.all([statusPromise,devicesPromise,heavyPromises]); const status=statusResponse||lastLightData.status; const devices=Array.isArray(devicesResponse)?devicesResponse:lastLightData.devices; lastLightData={status,devices}; const drawerCatalog=sanitizeCatalog(assetListing.files||[]); if(shouldRefreshHeavy){ lastHeavyRefreshAt=Date.now(); lastHeavyData={assetListing,installers,release}; } window.__devices=devices; window.__assets=assetListing.files||[]; window.__drawerAssetCatalog=drawerCatalog; window.__installers=installers; renderSideStatus(status,devices); renderSelectionSummary(); renderDevices(devices); if(shouldRefreshHeavy){ renderAssets(assetListing); renderInstallers(installers); renderReleaseList(release); renderStatus(status,devices,drawerCatalog,installers,release); updateDrawerFolderInfo(); } document.getElementById('playlistHint').textContent=drawerCatalog.length?t('playlistHintReady'):t('playlistHintEmpty'); } finally { refreshInFlight=false; if(pendingHeavyRefresh){ pendingHeavyRefresh=false; queueRefresh(true); } } }
+    function queueRefresh(forceHeavy=false){ return refresh(forceHeavy).catch(showError); }
+    async function refreshLight(){ try{ const [statusResponse,devicesResponse]=await Promise.all([request('/api/status'),request('/api/devices')]); const status=statusResponse||lastLightData.status; const devices=Array.isArray(devicesResponse)?devicesResponse:lastLightData.devices; lastLightData={status,devices}; window.__devices=devices; renderSideStatus(status,devices); renderSelectionSummary(); renderDevices(devices); }catch(error){ showError(error); } }
+    applyLanguage(); setupAssetDropzone(); queueRefresh(true); initWebSocket(); setInterval(()=>{ refreshLight(); },1000);
+  </script>
+</body>
+</html>

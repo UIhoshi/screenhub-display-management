@@ -1,0 +1,16 @@
+AdvertisingScreenClient Offline Notice
+
+This installer is intended for fully offline deployment.
+
+Information and data handling:
+- The software is designed for offline local use.
+- It only reads or records software-related bug information, runtime status, and local log data required for troubleshooting.
+- It does not upload, synchronize, or share data to any person, company, platform, cloud service, or organization.
+- Media files, control files, pair information, and logs remain in your local deployment environment unless you manually copy them.
+
+Usage notice:
+- Install and use only in a trusted local network or standalone environment.
+- Before replacing an existing installation, back up the current source snapshot, unpacked runtime, and local media directories if rollback may be required.
+- If a security product or operating system prompts for local device access, review it according to your offline deployment policy.
+
+By continuing installation, you confirm that you understand and accept the offline deployment and local-only information handling described above.

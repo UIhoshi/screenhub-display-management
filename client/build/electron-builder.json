@@ -1,0 +1,35 @@
+{
+  "appId": "com.advertisingscreen.client.offline",
+  "productName": "AdvertisingScreenClient",
+  "directories": {
+    "output": "../windows/_client-installer-build"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "artifactName": "AdvertisingScreenClient-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "allowElevation": true,
+    "perMachine": false,
+    "runAfterFinish": true,
+    "displayLanguageSelector": true,
+    "installerLanguages": [
+      "zh_CN",
+      "en_US",
+      "ja_JP"
+    ],
+    "multiLanguageInstaller": true,
+    "license": "build/license.txt",
+    "include": "build/installer.nsh",
+    "artifactName": "AdvertisingScreenClient-Setup-${version}.${ext}"
+  }
+}
