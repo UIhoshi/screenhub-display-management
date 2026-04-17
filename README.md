@@ -141,6 +141,11 @@ Notes:
 - the release version is `v1.0.1`
 - installer filenames currently remain on the `1.0.0` naming line in this baseline
 
+## Version Evolution
+
+- `v1.0.1`: hardened the public stable baseline around startup cleanup, wrong-instance prevention, and server-side duplicate-process protection.
+- `v1.0.0`: established the original stable packaging line for the ScreenHub client/server delivery model.
+
 ## Known Limitations
 
 - This repository currently does not expose preview screenshots or demo GIF assets in the README.
