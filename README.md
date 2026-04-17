@@ -1,64 +1,85 @@
-<h1 align="center">ScreenHub Display Management</h1>
+<div align="center">
 
-<p align="center">
-  LAN-based Electron display management system for screen playback, remote control, offline deployment, and stable client/server delivery.
-</p>
+# ScreenHub Display Management
 
-<p align="center">
-  <a href="https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1"><img src="https://img.shields.io/github/v/release/UIhoshi/screenhub-display-management?display_name=tag&style=for-the-badge" alt="Release"></a>
-  <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge" alt="Platform">
-  <img src="https://img.shields.io/badge/stack-Electron%20%7C%20Node.js-3C873A?style=for-the-badge" alt="Stack">
-  <img src="https://img.shields.io/badge/readme-en%20%7C%20zh%20%7C%20ja-b91c1c?style=for-the-badge" alt="Readme Languages">
-  <img src="https://img.shields.io/badge/deployment-LAN%20%2F%20Offline-orange?style=for-the-badge" alt="Deployment">
-</p>
+**LAN-based display playback management for remote control, offline deployment, and stable client/server delivery**
 
-<p align="center">
-  <a href="./README.md">English</a> |
-  <a href="./README.zh-CN.md">中文</a> |
-  <a href="./README.ja.md">日本語</a>
-</p>
+[English](./README.md) | [简体中文](./README.zh-CN.md) | [日本語](./README.ja.md)
 
-## Overview
+</div>
 
-ScreenHub Display Management is a Windows-focused client/server system for managing remote display playback over a LAN environment.
+<div align="center">
 
-This repository tracks the `v1.0.1-stable` baseline and focuses on operational stability:
+[![Release](https://img.shields.io/github/v/release/UIhoshi/screenhub-display-management?display_name=tag&style=for-the-badge)](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1)
+![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge)
+![Stack](https://img.shields.io/badge/stack-Electron%20%7C%20Node.js-3C873A?style=for-the-badge)
+![Deployment](https://img.shields.io/badge/deployment-LAN%20%2F%20Offline-orange?style=for-the-badge)
+![Readme](https://img.shields.io/badge/readme-en%20%7C%20zh%20%7C%20ja-b91c1c?style=for-the-badge)
 
-- client startup cleanup for conflicting portable and installed instances
-- cleanup of stale auto-start entries, scheduled tasks, and legacy runtime folders
-- server single-instance protection to avoid duplicate processes and management-state confusion
+</div>
 
-## Why v1.0.1 matters
+## Product Proof
 
-Windows field testing confirmed a high-impact failure pattern:
+ScreenHub is a Windows-focused client/server system for managing remote display playback inside a LAN environment.
 
-- the same machine must not keep multiple client forms at the same time
-- old portable copies, installed copies, or stale startup entries can launch the wrong client
-- the result can appear as:
-  - unclickable UI
-  - playlist delivery appearing successful but playback not starting
-  - behavior that looks like the machine is still running an older version
+The current public baseline tracks `v1.0.1-stable`, with stability work concentrated on operational failure patterns that matter in real deployment:
 
-## At a glance
+- stale portable and installed client copies launching the wrong instance
+- old auto-start entries and scheduled tasks relaunching outdated clients
+- duplicate server processes causing management-state confusion
+
+## ✨ What does this solve?
+
+- **Remote display playback becomes unreliable when old instances linger**: ScreenHub hardens startup cleanup for conflicting client copies and old runtime leftovers.
+- **LAN deployments need offline-first stability**: the system is designed for local network delivery instead of internet-first assumptions.
+- **Duplicate server processes create confusing behavior**: single-instance protection reduces accidental management-state conflicts.
+- **Field debugging is expensive**: the repository keeps its docs hub and deployment context close to the actual codebase.
+
+## Quick Start
+
+### Use the release installers
+
+1. Download the server and client installers from the [`v1.0.1` release](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1).
+2. Install the server on the management machine.
+3. Install the client on the display machine.
+4. Start the server and open the admin page.
+5. Start the client and wait for pairing or connection.
+
+> Important:
+> Keep only one active client form on the same Windows machine. Do not leave an old portable copy and an installed copy side by side.
+
+### Use the source code
+
+1. Install dependencies in both `client/` and `server/`.
+2. Read the project docs in `PROJECT_GUIDE_AND_README/` before making structural changes.
+3. Validate unpacked artifacts first.
+4. Move to final installer verification only when testing packaging or formal delivery.
+
+## At a Glance
+
+<div align="center">
 
 | Topic | Summary |
-| --- | --- |
+|-------|---------|
+| Release baseline | `v1.0.1-stable` |
 | Runtime | Electron client + Electron server |
 | Deployment | LAN / offline-oriented Windows delivery |
-| Release focus | Runtime cleanup and instance stability |
-| Client issue hardened in `v1.0.1` | Wrong-instance launch caused by portable/install conflicts |
-| Server issue hardened in `v1.0.1` | Duplicate process / duplicate state protection |
+| Main hardening focus | startup cleanup and instance stability |
+| Client-side risk addressed | portable/install conflicts launching the wrong instance |
+| Server-side risk addressed | duplicate process / duplicate state protection |
 | Docs hub | `PROJECT_GUIDE_AND_README/` |
 
-## Repository layout
+</div>
 
-| Path | Purpose |
-| --- | --- |
-| `client/` | Electron display client source, build configuration, and packaging files |
-| `server/` | Electron server source, admin backend, build configuration, and packaging files |
-| `PROJECT_GUIDE_AND_README/` | Architecture, deployment, refactoring, history, and project-level operating documents |
+## ✨ Core Features
 
-## Documentation entry
+- Client/server display management over a LAN environment.
+- Offline-oriented deployment flow for Windows machines.
+- Client startup cleanup for conflicting portable and installed runtime copies.
+- Cleanup of stale startup entries, scheduled tasks, and legacy runtime folders.
+- Server single-instance protection to avoid duplicate management-state confusion.
+
+## Documentation Entry
 
 Start here if you are maintaining or extending the project:
 
@@ -67,47 +88,70 @@ Start here if you are maintaining or extending the project:
 - [`PROJECT_GUIDE_AND_README/status/03_V1_0_0_STABLE_BASELINE.md`](./PROJECT_GUIDE_AND_README/status/03_V1_0_0_STABLE_BASELINE.md)
 - [`PROJECT_GUIDE_AND_README/history/L2_MILESTONE_LOGS.md`](./PROJECT_GUIDE_AND_README/history/L2_MILESTONE_LOGS.md)
 
-## Quick start
+## Technical Implementation
 
-### Use the release installers
+**Tech stack**
 
-1. Download the two installer assets from the [`v1.0.1` release](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1).
-2. Install the server on the management machine.
-3. Install the client on the display machine.
-4. Start the server and open the admin page.
-5. Start the client and wait for pairing or connection.
+- Electron client
+- Electron server
+- Node.js backend services
+- Express, WebSocket, and related local management dependencies
 
-Important:
+**Architecture highlights**
 
-- keep only one client form on the same Windows machine
-- do not keep an old portable client and an installed client at the same time
-- if you are validating new behavior, make sure an older unpacked copy is not being launched
+- split `client/` and `server/` codebases
+- installer-based Windows delivery for both roles
+- LAN-focused deployment model
+- stability-first hardening around runtime cleanup and instance control
 
-### Use the source code
+**Repository layout**
 
-1. Install dependencies in both `client/` and `server/`.
-2. Read the project docs in `PROJECT_GUIDE_AND_README/` before making changes.
-3. Validate unpacked artifacts first.
-4. Move to final installer verification only when testing packaging, installation behavior, upgrade flow, or formal delivery.
+| Path | Purpose |
+|------|---------|
+| `client/` | Electron display client source, build configuration, and packaging files |
+| `server/` | Electron server source, admin backend, build configuration, and packaging files |
+| `PROJECT_GUIDE_AND_README/` | architecture, deployment, refactoring, history, and operating docs |
+| `README.zh-CN.md` / `README.ja.md` | multilingual README pages |
 
-## Release assets
+## Development
 
-The GitHub release tagged [`v1.0.1`](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1) contains:
+Client and server are maintained separately.
+
+Typical local workflow:
+
+```bash
+cd client
+npm install
+
+cd ../server
+npm install
+```
+
+Read the docs hub before changing packaging, installation behavior, or deployment flow.
+
+## Release Assets
+
+The GitHub release tagged [`v1.0.1`](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1) currently contains:
 
 - `AdvertisingScreenServer-Setup-1.0.0.exe`
 - `AdvertisingScreenClient-Setup-1.0.0.exe`
 
-Note:
+Notes:
 
 - the release version is `v1.0.1`
-- the installer filenames currently remain on the `1.0.0` naming line in this baseline
+- installer filenames currently remain on the `1.0.0` naming line in this baseline
 
-## Local-only files excluded from this repository
+## Known Limitations
 
-This repository intentionally does not include:
+- This repository currently does not expose preview screenshots or demo GIF assets in the README.
+- The public README is Windows-first because the deployment target is Windows.
+- Installer naming has not yet fully caught up with the `v1.0.1` release tag line.
 
-- local environment files such as `.env`
-- `node_modules`
-- unpacked test bundles
-- temp folders and local packaging artifacts
-- local private notes such as `agentlogic.md`
+## Contributing / Support
+
+- Open an Issue for deployment bugs, startup cleanup regressions, or playback-management problems.
+- Use PRs for targeted changes after reading the docs hub and project operating documents.
+
+## License
+
+No license file is currently declared in this repository.

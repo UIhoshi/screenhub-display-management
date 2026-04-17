@@ -1,113 +1,157 @@
-<h1 align="center">ScreenHub Display Management</h1>
+<div align="center">
 
-<p align="center">
-  画面再生、リモート制御、オフライン配備、安定したクライアント / サーバー運用のための LAN ベース Electron ディスプレイ管理システム。
-</p>
+# ScreenHub Display Management
 
-<p align="center">
-  <a href="https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1"><img src="https://img.shields.io/github/v/release/UIhoshi/screenhub-display-management?display_name=tag&style=for-the-badge" alt="Release"></a>
-  <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge" alt="Platform">
-  <img src="https://img.shields.io/badge/stack-Electron%20%7C%20Node.js-3C873A?style=for-the-badge" alt="Stack">
-  <img src="https://img.shields.io/badge/readme-en%20%7C%20zh%20%7C%20ja-b91c1c?style=for-the-badge" alt="Readme Languages">
-  <img src="https://img.shields.io/badge/deployment-LAN%20%2F%20Offline-orange?style=for-the-badge" alt="Deployment">
-</p>
+**LAN 環境での遠隔制御、オフライン配備、安定した運用を前提としたディスプレイ再生管理システム**
 
-<p align="center">
-  <a href="./README.md">English</a> |
-  <a href="./README.zh-CN.md">中文</a> |
-  <a href="./README.ja.md">日本語</a>
-</p>
+[English](./README.md) | [简体中文](./README.zh-CN.md) | [日本語](./README.ja.md)
 
-## 概要
+</div>
 
-ScreenHub Display Management は、Windows の LAN 環境向けに設計されたクライアント / サーバー型の画面再生管理システムです。
+<div align="center">
 
-このリポジトリは `v1.0.1-stable` ベースラインを表しており、機能追加よりも運用安定性を重視しています。
+[![Release](https://img.shields.io/github/v/release/UIhoshi/screenhub-display-management?display_name=tag&style=for-the-badge)](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1)
+![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge)
+![Stack](https://img.shields.io/badge/stack-Electron%20%7C%20Node.js-3C873A?style=for-the-badge)
+![Deployment](https://img.shields.io/badge/deployment-LAN%20%2F%20Offline-orange?style=for-the-badge)
+![Readme](https://img.shields.io/badge/readme-en%20%7C%20zh%20%7C%20ja-b91c1c?style=for-the-badge)
 
-- クライアント起動時にポータブル版とインストール版の競合を自動クリーンアップ
-- 古い自動起動設定、タスクスケジューラ項目、旧ランタイムディレクトリの整理
-- サーバーの単一起動保護による重複プロセスと管理状態混乱の防止
+</div>
 
-## `v1.0.1` が重要な理由
+## 製品概要
 
-Windows 実機検証で、影響の大きい障害パターンが確認されました。
+ScreenHub は、Windows の LAN 環境向けに設計されたクライアント / サーバー型のディスプレイ再生管理システムです。
 
-- 同じ PC に複数のクライアント形態を共存させてはいけない
-- 古いポータブル版、旧インストール版、残留スタートアップ設定が誤ったクライアントを起動することがある
-- その結果、次のような問題が発生する
-  - UI がクリックできない
-  - 配信が成功したように見えても再生が始まらない
-  - 旧バージョンが動いているように見える
+現在の公開ベースラインは `v1.0.1-stable` であり、機能追加よりも運用上の高頻度障害を減らすことに重点を置いています。
 
-## 一覧
+- 古いポータブル版とインストール版の競合で誤ったクライアントが起動する
+- 古いスタートアップ設定やタスクが過去バージョンを再起動する
+- サーバープロセスの重複起動で管理状態が混乱する
 
-| 項目 | 概要 |
-| --- | --- |
+## ✨ 何を解決するのか？
+
+- **古いインスタンスが残ると遠隔再生が不安定になる**: ScreenHub は競合クライアントや残留ランタイムの起動時整理を強化しています。
+- **LAN 配備ではオフライン前提の安定性が必要**: このシステムはインターネット前提ではなくローカルネットワーク前提で設計されています。
+- **重複サーバープロセスは誤動作の原因になる**: 単一インスタンス保護で管理状態の混乱を抑えます。
+- **現場での切り分けコストが高い**: 配備文書と運用履歴を同じリポジトリ内の文書ハブにまとめています。
+
+## クイックスタート
+
+### release インストーラを使う
+
+1. [`v1.0.1` release](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1) からサーバー版とクライアント版のインストーラを取得します。
+2. 管理用マシンにサーバーをインストールします。
+3. 表示用マシンにクライアントをインストールします。
+4. サーバーを起動し、管理画面を開きます。
+5. クライアントを起動し、接続またはペアリングを待ちます。
+
+> 重要:
+> 同じ Windows マシン上には有効なクライアント形態を 1 つだけ残してください。古いポータブル版とインストール版を同時に残さないでください。
+
+### ソースコードを使う
+
+1. `client/` と `server/` の両方で依存関係をインストールします。
+2. 構造変更を行う前に `PROJECT_GUIDE_AND_README/` の文書を確認します。
+3. まず unpacked 生成物で検証します。
+4. パッケージング、インストール、アップグレード、正式納品の確認時のみ最終インストーラ検証へ進みます。
+
+## 一目で分かる要約
+
+<div align="center">
+
+| 項目 | 内容 |
+|------|------|
+| リリース基線 | `v1.0.1-stable` |
 | 実行形態 | Electron クライアント + Electron サーバー |
 | 配備方式 | LAN / オフライン志向の Windows 配備 |
-| 現在の release 重点 | ランタイム整理とインスタンス安定化 |
-| `v1.0.1` で強化したクライアント問題 | ポータブル版 / インストール版競合による誤起動 |
-| `v1.0.1` で強化したサーバー問題 | 重複プロセス / 重複状態の防止 |
-| ドキュメント中心 | `PROJECT_GUIDE_AND_README/` |
+| 現在の重点 | 起動整理とインスタンス安定性 |
+| 強化済みクライアント問題 | ポータブル版 / インストール版競合による誤起動 |
+| 強化済みサーバー問題 | 重複プロセス / 重複状態の防止 |
+| 文書ハブ | `PROJECT_GUIDE_AND_README/` |
 
-## リポジトリ構成
+</div>
 
-| パス | 用途 |
-| --- | --- |
-| `client/` | Electron クライアントのソース、ビルド設定、パッケージ設定 |
-| `server/` | Electron サーバーのソース、管理バックエンド、ビルド設定、パッケージ設定 |
-| `PROJECT_GUIDE_AND_README/` | アーキテクチャ、配備、リファクタリング履歴、運用ドキュメント |
+## ✨ 主な機能
 
-## ドキュメントの入口
+- LAN 環境でのクライアント再生管理
+- Windows 向けのオフライン優先配備フロー
+- ポータブル版とインストール版の競合を起動時に整理
+- 古いスタートアップ項目、タスク、ランタイム残骸の整理
+- サーバーの単一インスタンス保護
 
-保守や拡張を行う場合は、まず以下を読んでください。
+## ドキュメント入口
+
+保守、障害対応、拡張開発の前に、次の文書を確認してください。
 
 - [`PROJECT_GUIDE_AND_README/README_MASTER_CENTER.md`](./PROJECT_GUIDE_AND_README/README_MASTER_CENTER.md)
 - [`PROJECT_GUIDE_AND_README/status/L1_SYSTEM_DEFINITION.md`](./PROJECT_GUIDE_AND_README/status/L1_SYSTEM_DEFINITION.md)
 - [`PROJECT_GUIDE_AND_README/status/03_V1_0_0_STABLE_BASELINE.md`](./PROJECT_GUIDE_AND_README/status/03_V1_0_0_STABLE_BASELINE.md)
 - [`PROJECT_GUIDE_AND_README/history/L2_MILESTONE_LOGS.md`](./PROJECT_GUIDE_AND_README/history/L2_MILESTONE_LOGS.md)
 
-## クイックスタート
+## 技術実装
 
-### リリース版インストーラーを使う
+**技術スタック**
 
-1. [`v1.0.1` release](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1) から 2 つのインストーラーを取得します。
-2. 管理用マシンにサーバーをインストールします。
-3. 表示用マシンにクライアントをインストールします。
-4. サーバーを起動し、管理ページを開きます。
-5. クライアントを起動して、ペアリングまたは接続を待ちます。
+- Electron クライアント
+- Electron サーバー
+- Node.js ローカルバックエンド
+- Express、WebSocket などのローカル管理用依存
 
-注意:
+**アーキテクチャ上のポイント**
 
-- 同じ Windows マシンには 1 つのクライアント形態だけを残してください
-- 古いポータブル版とインストール版を同時に残さないでください
-- 新しい動作を検証するときは、古い unpacked コピーが起動されていないことを確認してください
+- `client/` と `server/` の分離構成
+- Windows 向けインストーラ配布
+- LAN 優先の配備モデル
+- ランタイム整理とインスタンス制御を中心とした安定化
 
-### ソースコードを使う
+**リポジトリ構成**
 
-1. `client/` と `server/` の両方で依存関係をインストールします。
-2. 変更前に `PROJECT_GUIDE_AND_README/` のプロジェクト文書を確認します。
-3. まず unpacked 生成物で検証します。
-4. パッケージ、インストール、アップグレード、正式納品を検証するときだけ最終インストーラー検証に進みます。
+| パス | 用途 |
+|------|------|
+| `client/` | Electron クライアントのソース、ビルド設定、パッケージング設定 |
+| `server/` | Electron サーバーのソース、管理バックエンド、ビルド設定、パッケージング設定 |
+| `PROJECT_GUIDE_AND_README/` | アーキテクチャ、配備、リファクタ履歴、運用文書 |
+| `README.zh-CN.md` / `README.ja.md` | 多言語 README ページ |
+
+## 開発
+
+クライアントとサーバーは分けて管理します。
+
+典型的なローカル作業フロー:
+
+```bash
+cd client
+npm install
+
+cd ../server
+npm install
+```
+
+配備、インストール挙動、運用フローを変更する前に、必ず文書ハブを確認してください。
 
 ## Release 資産
 
-[`v1.0.1`](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1) release には現在、次の 2 つのインストーラーが含まれます。
+[`v1.0.1`](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1) release には現在、次のインストーラが含まれています。
 
 - `AdvertisingScreenServer-Setup-1.0.0.exe`
 - `AdvertisingScreenClient-Setup-1.0.0.exe`
 
 補足:
 
-- release のバージョンは `v1.0.1`
-- このベースラインではインストーラーのファイル名は引き続き `1.0.0` のままです
+- release タグは `v1.0.1`
+- インストーラのファイル名はまだ `1.0.0` 系を引き継いでいます
 
-## このリポジトリに含めないローカル専用ファイル
+## 既知の制約
 
-このリポジトリには次のものを含めません。
+- 現在の README にはスクリーンショットや GIF デモ資産は含まれていません。
+- 公開 README は配備対象に合わせて Windows 前提で記述されています。
+- インストーラ命名はまだ `v1.0.1` のタグ体系に完全には追従していません。
 
-- ローカル `.env`
-- `node_modules`
-- unpacked テスト生成物
-- 一時パッケージ成果物
-- `agentlogic.md` のようなローカル私用メモ
+## コントリビューション / サポート
+
+- 配備不具合、起動整理の回帰、再生管理の問題があれば Issue を作成してください。
+- PR を送る前に、文書ハブと運用文書を先に確認してください。
+
+## License
+
+このリポジトリには現在、個別のライセンスファイルはまだ含まれていません。
