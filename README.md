@@ -88,6 +88,14 @@ Start here if you are maintaining or extending the project:
 - [`PROJECT_GUIDE_AND_README/status/03_V1_0_0_STABLE_BASELINE.md`](./PROJECT_GUIDE_AND_README/status/03_V1_0_0_STABLE_BASELINE.md)
 - [`PROJECT_GUIDE_AND_README/history/L2_MILESTONE_LOGS.md`](./PROJECT_GUIDE_AND_README/history/L2_MILESTONE_LOGS.md)
 
+## Agent Logic Entry
+
+- Read `README.md` first.
+- Then read `AGENTS.md`.
+- Then continue into the docs hub listed above.
+- The active logic source of truth is the current `UIhoshi/AgentLogic` repository and the installed main logic derived from it.
+- Do **not** upload copied AgentLogic bundles or workspace-private rule markdown into this repository.
+
 ## Technical Implementation
 
 **Tech stack**
