@@ -3,7 +3,11 @@ MANDATORY LOGIC GATE
 Before making changes here, read PROJECT_GUIDE_AND_README/ files first.
 -->
 
-# 🌌 ScreenHub Display Management (v1.0.1)
+<div align="center">
+
+# ScreenHub Display Management (v1.0.1)
+
+**[English](./README.md) | [中文](./README.zh-CN.md) | [日本語](./README.ja.md)**
 
 [![Release](https://img.shields.io/github/v/release/UIhoshi/screenhub-display-management?display_name=tag&style=flat-square)](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square)](https://github.com/UIhoshi/screenhub-display-management)
@@ -11,9 +15,9 @@ Before making changes here, read PROJECT_GUIDE_AND_README/ files first.
 [![Readme Languages](https://img.shields.io/badge/readme-en%20%7C%20zh%20%7C%20ja-b91c1c?style=flat-square)](https://github.com/UIhoshi/screenhub-display-management)
 [![Deployment](https://img.shields.io/badge/deployment-LAN%20%2F%20Offline-orange?style=flat-square)](https://github.com/UIhoshi/screenhub-display-management)
 
-**ScreenHub Display Management** is a LAN-based, offline-capable Electron display management system. It provides remote playlist scheduling, playback synchronization, client control, and stable deployment for distributed screen display installations.
+</div>
 
-**[English](./README.md) | [中文](./README.zh-CN.md) | [日本語](./README.ja.md)**
+**ScreenHub Display Management** is a LAN-based, offline-capable Electron display management system. It provides remote playlist scheduling, playback synchronization, client control, and stable deployment for distributed screen display installations.
 
 > [!WARNING]
 > **Windows Field Conflict Hazard (Fixed in v1.0.1)**:

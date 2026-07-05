@@ -3,7 +3,11 @@ MANDATORY LOGIC GATE
 Before making changes here, read PROJECT_GUIDE_AND_README/ files first.
 -->
 
-# 🌌 ScreenHub Display Management (v1.0.1)
+<div align="center">
+
+# ScreenHub Display Management (v1.0.1)
+
+**[English](./README.md) | [中文](./README.zh-CN.md) | [日本語](./README.ja.md)**
 
 [![Release](https://img.shields.io/github/v/release/UIhoshi/screenhub-display-management?display_name=tag&style=flat-square)](https://github.com/UIhoshi/screenhub-display-management/releases/tag/v1.0.1)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square)](https://github.com/UIhoshi/screenhub-display-management)
@@ -11,9 +15,9 @@ Before making changes here, read PROJECT_GUIDE_AND_README/ files first.
 [![Readme Languages](https://img.shields.io/badge/readme-en%20%7C%20zh%20%7C%20ja-b91c1c?style=flat-square)](https://github.com/UIhoshi/screenhub-display-management)
 [![Deployment](https://img.shields.io/badge/deployment-LAN%20%2F%20Offline-orange?style=flat-square)](https://github.com/UIhoshi/screenhub-display-management)
 
-**ScreenHub Display Management** 是一款面向局域网和离线环境的 Electron 屏幕播放管理系统。它提供远程播放列表下发、屏幕播放同步、客户端远程控制，以及适合分布式大屏播放场景的稳定离线交付。
+</div>
 
-**[English](./README.md) | [中文](./README.zh-CN.md) | [日本語](./README.ja.md)**
+**ScreenHub Display Management** 是一款面向局域网和离线环境的 Electron 屏幕播放管理系统。它提供远程播放列表下发、屏幕播放同步、客户端远程控制，以及适合分布式大屏播放场景的稳定离线交付。
 
 > [!WARNING]
 > **Windows 实机版本冲突风险（已于 v1.0.1 修复）**：
@@ -26,7 +30,7 @@ Before making changes here, read PROJECT_GUIDE_AND_README/ files first.
 | 目标场景 | ScreenHub 解决方案 |
 | :--- | :--- |
 | **分布式离线屏幕控制** | 专为无外网局域网设计的 Electron 客户端与服务端后台，保障断网状态下稳定循环播放。 |
-| **多版本混淆实例启动** | 启动检测模块自动扫描并清理共存的散包/安装版冲突进程，复位残留环境。 |
+| **多版本混淆实例启动** | 启动检测模块自动扫描并清理共存 of 散包/安装版冲突进程，复位残留环境。 |
 | **多服务端进程状态冲突** | 引入服务端单实例互斥锁，防止重复启动管理后台造成状态混乱和数据库读写错误。 |
 | **老旧开机自启项失效** | 自动注册表与计划任务深度复位，重新绑定规范的开机自启动路径。 |
 
