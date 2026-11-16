@@ -38,21 +38,31 @@
       return;
     }
 
-    try {
-      const results = [];
-      for (const machineId of uniqueMachineIds) {
+    const results = await Promise.all(
+      uniqueMachineIds.map(async (machineId) => {
         if (!server.approvedDevices.has(machineId)) {
-          throw new Error(`Device is not approved: ${machineId}`);
+          return { machineId, ok: false, error: `Device is not approved: ${machineId}` };
         }
-        results.push({
-          machineId,
-          playlist: await server.saveAndDispatchPlaylist(machineId, { mode, items }),
-        });
-      }
-      res.json({ success: true, results });
-    } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+        try {
+          const playlist = await server.saveAndDispatchPlaylist(machineId, { mode, items });
+          return { machineId, ok: true, playlist };
+        } catch (error) {
+          return { machineId, ok: false, error: error?.message || String(error) };
+        }
+      })
+    );
+
+    const anySucceeded = results.some((item) => item.ok);
+    if (!anySucceeded) {
+      res.status(500).json({
+        success: false,
+        error: results[0]?.error || 'Failed to dispatch playlist',
+        results,
+      });
+      return;
     }
+
+    res.json({ success: true, results });
   });
 }
 

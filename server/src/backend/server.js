@@ -80,6 +80,7 @@ class AdServer {
     this.logDir = options.logDir || process.env.AD_ACTIVE_SERVER_LOG_DIR || null;
     this.lastDiagnosticsWriteAt = 0;
     this.latestDiagnosticsExport = null;
+    this.assetHashCache = new Map();
 
     this.ensureStorage();
     this.initExpress();
@@ -756,14 +757,6 @@ class AdServer {
     try {
       const targetStats = await fs.promises.stat(targetPath);
       if (targetStats.size === sourceStats.size) {
-        if (expectedSha256) {
-          this.writeClientPushMeta(machineId, normalizedFileName, {
-            fileName: normalizedFileName,
-            size: sourceStats.size,
-            sha256: expectedSha256,
-            updatedAt: new Date().toISOString(),
-          });
-        }
         const existingMeta = this.readClientPushMeta(machineId, normalizedFileName);
         if (
           existingMeta
@@ -772,10 +765,10 @@ class AdServer {
         ) {
           return { skipped: true, size: sourceStats.size, targetPath };
         }
-        if (!expectedSha256 || !existingMeta) {
+        if (!expectedSha256 && !existingMeta) {
           return { skipped: true, size: sourceStats.size, targetPath };
         }
-        if (this.createFileHash(targetPath) === expectedSha256) {
+        if (expectedSha256 && this.createFileHash(targetPath) === expectedSha256) {
           this.writeClientPushMeta(machineId, normalizedFileName, {
             fileName: normalizedFileName,
             size: sourceStats.size,
@@ -969,6 +962,21 @@ class AdServer {
   describeAssetFile(fileName, machineId = null) {
     const filePath = path.join(MEDIA_ROOT, fileName);
     const stats = fs.statSync(filePath);
+    const cached = this.assetHashCache.get(filePath);
+    let md5;
+    let sha256;
+    if (cached && cached.size === stats.size && cached.mtimeMs === stats.mtimeMs) {
+      ({ md5, sha256 } = cached);
+    } else {
+      md5 = this.createMd5Hash(filePath);
+      sha256 = this.createFileHash(filePath);
+      this.assetHashCache.set(filePath, {
+        size: stats.size,
+        mtimeMs: stats.mtimeMs,
+        md5,
+        sha256,
+      });
+    }
     return {
       fileName,
       name: path.basename(fileName),
@@ -976,8 +984,8 @@ class AdServer {
       type: this.getMediaType(fileName),
       size: stats.size,
       src: this.createAbsoluteUrl(machineId, '/media', fileName),
-      md5: this.createMd5Hash(filePath),
-      sha256: this.createFileHash(filePath),
+      md5,
+      sha256,
     };
   }
 
@@ -1276,7 +1284,16 @@ class AdServer {
 
     let resolved = this.getResolvedPlaylist(machineId);
     if (machineId) {
-      resolved = await this.pushPlaylistAssetsToDevice(machineId, resolved);
+      try {
+        resolved = await this.pushPlaylistAssetsToDevice(machineId, resolved);
+      } catch (error) {
+        this.logEvent('playlist_asset_push_fallback_http', {
+          category: 'playlist',
+          machineId,
+          syncId: normalized.syncId,
+          error: error?.message || String(error),
+        }, 'warn');
+      }
       const ws = this.clients.get(machineId);
       if (ws && ws.readyState === WebSocket.OPEN) {
         this.sendCommand(ws, 'SET_PLAYLIST', { ...resolved, applyStrategy: 'immediate' });

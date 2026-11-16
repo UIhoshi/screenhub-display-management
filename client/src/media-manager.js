@@ -318,7 +318,7 @@ function createMediaManager(deps) {
             error: error.message,
           }, 'warn');
         }
-        if (['RESUME_MISMATCH', 'SIZE_MISMATCH'].includes(error.code)) {
+        if (['RESUME_MISMATCH', 'SIZE_MISMATCH'].includes(error.code) || error?.response?.status === 416) {
           forceFreshDownload = true;
         }
         if (attempt < downloadRetryCount) {

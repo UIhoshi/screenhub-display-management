@@ -144,3 +144,9 @@
   - 修复 `client/src/main.js` 手动/固定 IP 模式下服务端未就绪或等待配对审批时不再重试轮询 `/api/client/hello` 的断点（新增 `scheduleManualServerRetry()` 5s 轮询直到连接并获批）。
   - 将显式配置的服务器探测超时从 `1000ms` 放宽到至少 `3000ms`，并修复 `player:set-manual-server-address` 空地址输入抛异常的问题。
 - **逻辑副本清理**: 移除旧版 `AgentLogic/`（V6）副本、`scripts/check-logic-entry.js` 及源码顶部绑定注释头，同步 GitHub 最新 `AGENTS.md` 与多语 `README`。
+- **使用链路优化（不改 UI）**:
+  - `server.js` `saveAndDispatchPlaylist()` 增加 SMB 推送失败降级兜底，确保失败时仍可通过 WS 下发 `SET_PLAYLIST` 让客户端走 HTTP 拉取。
+  - 修复 `server.js` `copyAssetToClient()` 同字节大小文件覆盖时先写新 meta 导致跳过校验的顺序 Bug。
+  - `server.js` `describeAssetFile()` 增加基于 `size + mtimeMs` 的 `assetHashCache`，避免每次目录扫描同步重算全部大文件 MD5/SHA-256。
+  - `routes/playlist.js` `/api/playlist/dispatch` 改为 `Promise.all` 并发独立下发，单台失败不再阻断其余屏幕。
+  - `client/src/media-manager.js` `downloadToPath()` 增加 HTTP `416` 自动清空残片重下；`client/src/main.js` `applyPlaylist()` 改为并发度 3 的有序缓存拉取。

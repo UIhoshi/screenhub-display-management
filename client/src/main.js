@@ -1101,6 +1101,23 @@ const {
   sendEnvironmentReport,
 });
 
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 async function applyPlaylist(payload) {
   const applyToken = ++playlistApplyToken;
   const syncId = payload?.syncId || createTraceId('playlist');
@@ -1152,19 +1169,24 @@ async function applyPlaylist(payload) {
     }),
   });
 
-  for (const item of items) {
+  const resolvedItems = await mapWithConcurrency(items, 3, async (item) => {
+    if (playlistApplyToken !== applyToken) {
+      return null;
+    }
     try {
       if (item?.type === 'folder' && item?.path) {
         const folderEntries = Array.isArray(item.entries) ? item.entries : [];
-        const resolvedEntries = [];
-        for (const entry of folderEntries) {
+        const resolvedEntries = (await mapWithConcurrency(folderEntries, 3, async (entry) => {
+          if (playlistApplyToken !== applyToken) {
+            return null;
+          }
           try {
             const cachedEntry = await cacheMediaItem(entry);
             if (cachedEntry) {
-              resolvedEntries.push({
+              return {
                 ...cachedEntry,
                 ...(typeof entry.durationMs === 'number' ? { durationMs: entry.durationMs } : {}),
-              });
+              };
             }
           } catch (error) {
             log.warn('Failed to cache folder entry', {
@@ -1174,23 +1196,20 @@ async function applyPlaylist(payload) {
               message: error?.message || String(error),
             });
           }
-        }
+          return null;
+        })).filter(Boolean);
         if (!resolvedEntries.length) {
           await mediaManager.syncStagedFolderToLocalLibrary(item.path);
         }
-        resolved.push({
+        return {
           type: 'folder',
           path: String(item.path),
           folderPlayMode: String(item.folderPlayMode || 'sequence').toLowerCase() === 'random' ? 'random' : 'sequence',
           ...(resolvedEntries.length ? { entries: resolvedEntries } : {}),
           ...(typeof item.durationMs === 'number' ? { durationMs: item.durationMs } : {}),
-        });
-        continue;
+        };
       }
-      const cached = await cacheMediaItem(item);
-      if (cached) {
-        resolved.push(cached);
-      }
+      return await cacheMediaItem(item);
     } catch (error) {
       logClientEvent('playlist_item_cache_failed', {
         category: 'playlist',
@@ -1199,8 +1218,10 @@ async function applyPlaylist(payload) {
         itemPath: item?.path || item?.fileName || item?.src || null,
         error: error?.message || String(error),
       }, 'warn');
+      return null;
     }
-  }
+  });
+  resolved.push(...resolvedItems.filter(Boolean));
 
   if (playlistApplyToken !== applyToken) {
     return;
