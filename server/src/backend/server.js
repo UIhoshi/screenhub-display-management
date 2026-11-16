@@ -1,4 +1,4 @@
-const fs = require('fs');
+﻿const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
@@ -11,8 +11,8 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const WebSocket = require('ws');
-const ip = require('ip');
 const log = require('electron-log');
+const networkUtils = require('./utils/network');
 const registerSystemRoutes = require('./routes/system');
 const registerAssetRoutes = require('./routes/assets');
 const registerPlaylistRoutes = require('./routes/playlist');
@@ -23,7 +23,6 @@ const registerUdpDiscovery = require('./udp-discovery');
 const HTTP_PORT = Number(process.env.AD_SERVER_HTTP_PORT || 3000);
 const WS_PORT = Number(process.env.AD_SERVER_WS_PORT || 3001);
 const UDP_PORT = Number(process.env.AD_SERVER_UDP_PORT || 8888);
-const DEFAULT_PAIRING_KEY = process.env.AD_PAIRING_KEY || 'AS_LOCAL_PAIRING_20260310';
 const STORAGE_ROOT = process.env.AD_STORAGE_DIR
   ? path.resolve(process.env.AD_STORAGE_DIR)
   : app.isPackaged
@@ -37,15 +36,15 @@ const PLAYLIST_PATH = path.join(STORAGE_ROOT, 'playlist.json');
 const DEVICE_PLAYLISTS_PATH = path.join(STORAGE_ROOT, 'device-playlists.json');
 const APPROVED_DEVICES_PATH = path.join(STORAGE_ROOT, 'approved-devices.json');
 const DEVICE_SETTINGS_PATH = path.join(STORAGE_ROOT, 'device-settings.json');
+const ADMIN_UI_INDEX_PATH = path.join(__dirname, '../admin-ui/index.html');
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg']);
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.m4v']);
 const TEXT_EXTENSIONS = new Set(['.txt', '.html', '.htm']);
-const ADMIN_TOKEN = process.env.AD_ADMIN_TOKEN || 'CHANGE_ME_ADMIN_TOKEN';
 const CLIENT_PUSH_SHARE_NAME = process.env.AD_CLIENT_PUSH_SHARE_NAME || 'screen';
 const CLIENT_PUSH_SUBDIR = process.env.AD_CLIENT_PUSH_SUBDIR || path.join('client', 'media-staging');
-const REMOTE_START_USER = process.env.AD_REMOTE_START_USER || 'masiro';
-const REMOTE_START_PASSWORD = process.env.AD_REMOTE_START_PASSWORD || '20031026alsterm';
 const REMOTE_START_TASK_NAME = process.env.AD_REMOTE_START_TASK_NAME || 'AdvertisingScreenClient';
+const DIAGNOSTICS_ROOT = path.join(STORAGE_ROOT, 'diagnostics');
+const DIAGNOSTIC_EXPORT_RETENTION_COUNT = Number(process.env.AD_DIAGNOSTIC_EXPORT_RETENTION_COUNT || 10);
 const AUTO_INSTALL_COMPONENTS = [
   {
     softwareName: 'VLC',
@@ -53,8 +52,16 @@ const AUTO_INSTALL_COMPONENTS = [
   },
 ];
 
+function getRequiredEnv(name) {
+  const value = String(process.env[name] || '').trim();
+  if (!value || /^REPLACE_/i.test(value) || /^CHANGE_ME/i.test(value)) {
+    throw new Error(`${name} must be configured before starting the server`);
+  }
+  return value;
+}
+
 class AdServer {
-  constructor() {
+  constructor(options = {}) {
     this.app = express();
     this.httpServer = http.createServer(this.app);
     this.wss = new WebSocket.Server({ port: WS_PORT });
@@ -63,10 +70,16 @@ class AdServer {
     this.adminClients = new Set();
     this.discoveredDevices = new Map();
     this.approvedDevices = new Set();
-    this.pairingKey = DEFAULT_PAIRING_KEY;
+    this.pairingKey = getRequiredEnv('AD_PAIRING_KEY');
+    this.adminToken = getRequiredEnv('AD_ADMIN_TOKEN');
+    this.remoteStartUser = String(process.env.AD_REMOTE_START_USER || '').trim();
+    this.remoteStartPassword = String(process.env.AD_REMOTE_START_PASSWORD || '').trim();
     this.assetUpload = multer({ dest: path.join(STORAGE_ROOT, '_uploads_assets') });
     this.installerUpload = multer({ dest: path.join(STORAGE_ROOT, '_uploads_installers') });
     this.stopWebSocketGateway = null;
+    this.logDir = options.logDir || process.env.AD_ACTIVE_SERVER_LOG_DIR || null;
+    this.lastDiagnosticsWriteAt = 0;
+    this.latestDiagnosticsExport = null;
 
     this.ensureStorage();
     this.initExpress();
@@ -74,11 +87,219 @@ class AdServer {
     this.initUDP();
   }
 
+  createTraceId(prefix = 'trace') {
+    return `${prefix}_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}`;
+  }
+
+  summarizePlaylistForLog(machineId, payload = {}) {
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    return {
+      machineId: machineId || null,
+      syncId: payload.syncId || null,
+      mode: payload.mode || 'loop',
+      itemCount: items.length,
+      items: items.slice(0, 10).map((item) => ({
+        type: item?.type || null,
+        path: item?.path || item?.fileName || null,
+        fileName: item?.fileName || null,
+        durationMs: typeof item?.durationMs === 'number' ? item.durationMs : null,
+        folderPlayMode: item?.folderPlayMode || null,
+      })),
+    };
+  }
+
+  logEvent(event, details = {}, level = 'info') {
+    const logger = typeof log[level] === 'function' ? log[level].bind(log) : log.info.bind(log);
+    logger(event, {
+      service: 'server',
+      event,
+      ...details,
+    });
+  }
+
+  buildDiagnosticsSnapshot(machineId = null) {
+    const targetMachineId = machineId ? String(machineId).trim() : null;
+    const discoveredDevices = Array.from(this.discoveredDevices.values());
+    const filteredDevices = targetMachineId
+      ? discoveredDevices.filter((device) => device.machineId === targetMachineId)
+      : discoveredDevices;
+    const connectedClients = targetMachineId
+      ? Array.from(this.clients.keys()).filter((id) => id === targetMachineId)
+      : Array.from(this.clients.keys());
+    const approvedDevices = targetMachineId
+      ? Array.from(this.approvedDevices).filter((id) => id === targetMachineId)
+      : Array.from(this.approvedDevices).sort();
+    const devicePlaylists = this.loadDevicePlaylists();
+    const deviceSettings = this.loadDeviceSettings();
+    return {
+      generatedAt: new Date().toISOString(),
+      machineId: targetMachineId,
+      logDir: this.logDir,
+      storageRoot: STORAGE_ROOT,
+      ports: {
+        http: HTTP_PORT,
+        ws: WS_PORT,
+        udp: UDP_PORT,
+      },
+      approvedDevices,
+      connectedClients,
+      discoveredDevices: filteredDevices,
+      activePlaylist: this.getResolvedPlaylist(targetMachineId),
+      devicePlaylists: targetMachineId
+        ? { [targetMachineId]: devicePlaylists[targetMachineId] || null }
+        : devicePlaylists,
+      deviceSettings: targetMachineId
+        ? { [targetMachineId]: deviceSettings[targetMachineId] || null }
+        : deviceSettings,
+      latestClientRelease: this.getLatestClientRelease(),
+      installerCatalog: this.getInstallerCatalog(),
+      latestDiagnosticsExport: this.latestDiagnosticsExport,
+    };
+  }
+
+  writeDiagnosticsSnapshot(reason = 'manual', force = false, machineId = null) {
+    const now = Date.now();
+    const snapshotFileName = machineId ? `server-diagnostics-${machineId}.json` : 'server-diagnostics.json';
+    if (!force && !machineId && now - this.lastDiagnosticsWriteAt < 1000) {
+      return path.join(DIAGNOSTICS_ROOT, snapshotFileName);
+    }
+    const snapshotPath = path.join(DIAGNOSTICS_ROOT, snapshotFileName);
+    const payload = {
+      reason,
+      ...this.buildDiagnosticsSnapshot(machineId),
+    };
+    fs.writeFileSync(snapshotPath, JSON.stringify(payload, null, 2));
+    if (!machineId) {
+      this.lastDiagnosticsWriteAt = now;
+    }
+    return snapshotPath;
+  }
+
+  pruneDiagnosticExports() {
+    try {
+      const entries = fs.readdirSync(DIAGNOSTICS_ROOT, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.startsWith('support-package-') && entry.name.endsWith('.zip'))
+        .map((entry) => {
+          const fullPath = path.join(DIAGNOSTICS_ROOT, entry.name);
+          const stats = fs.statSync(fullPath);
+          return { fullPath, mtimeMs: stats.mtimeMs };
+        })
+        .sort((left, right) => right.mtimeMs - left.mtimeMs);
+      for (const stale of entries.slice(Math.max(DIAGNOSTIC_EXPORT_RETENTION_COUNT, 1))) {
+        fs.rmSync(stale.fullPath, { force: true });
+      }
+    } catch (_error) {
+      // Best-effort pruning.
+    }
+  }
+
+  async exportDiagnosticsPackage(machineId = null) {
+    const normalizedMachineId = machineId ? String(machineId).trim() : null;
+    if (normalizedMachineId && !this.discoveredDevices.has(normalizedMachineId)) {
+      throw new Error(`Unknown device: ${normalizedMachineId}`);
+    }
+    const exportId = this.createTraceId(normalizedMachineId ? `support_${normalizedMachineId}` : 'support');
+    const exportRoot = path.join(DIAGNOSTICS_ROOT, exportId);
+    const logsTargetDir = path.join(exportRoot, 'logs');
+    fs.mkdirSync(logsTargetDir, { recursive: true });
+
+    const snapshotPath = this.writeDiagnosticsSnapshot('export', true, normalizedMachineId);
+    fs.copyFileSync(snapshotPath, path.join(exportRoot, normalizedMachineId ? `device-diagnostics-${normalizedMachineId}.json` : 'server-diagnostics.json'));
+    if (fs.existsSync(PLAYLIST_PATH)) {
+      fs.copyFileSync(PLAYLIST_PATH, path.join(exportRoot, 'playlist.json'));
+    }
+    if (fs.existsSync(APPROVED_DEVICES_PATH)) {
+      fs.copyFileSync(APPROVED_DEVICES_PATH, path.join(exportRoot, 'approved-devices.json'));
+    }
+    if (fs.existsSync(DEVICE_SETTINGS_PATH)) {
+      fs.copyFileSync(DEVICE_SETTINGS_PATH, path.join(exportRoot, 'device-settings.json'));
+    }
+    if (fs.existsSync(DEVICE_PLAYLISTS_PATH)) {
+      fs.copyFileSync(DEVICE_PLAYLISTS_PATH, path.join(exportRoot, 'device-playlists.json'));
+    }
+
+    if (this.logDir && fs.existsSync(this.logDir)) {
+      for (const entry of fs.readdirSync(this.logDir, { withFileTypes: true })) {
+        if (!entry.isFile()) {
+          continue;
+        }
+        const sourcePath = path.join(this.logDir, entry.name);
+        if (!entry.name.endsWith('.log') && !entry.name.includes('.log.')) {
+          continue;
+        }
+        fs.copyFileSync(sourcePath, path.join(logsTargetDir, entry.name));
+      }
+    }
+
+    const zipPath = path.join(DIAGNOSTICS_ROOT, `support-package-${exportId}.zip`);
+    await new Promise((resolve, reject) => {
+      const script = [
+        `$src = '${exportRoot.replace(/'/g, "''")}'`,
+        `$dst = '${zipPath.replace(/'/g, "''")}'`,
+        "if (Test-Path $dst) { Remove-Item -LiteralPath $dst -Force }",
+        "Compress-Archive -LiteralPath (Join-Path $src '*') -DestinationPath $dst -Force",
+      ].join('; ');
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+
+    fs.rmSync(exportRoot, { recursive: true, force: true });
+    this.pruneDiagnosticExports();
+    this.latestDiagnosticsExport = {
+      exportId,
+      zipPath,
+      snapshotPath,
+      machineId: normalizedMachineId,
+      exportedAt: new Date().toISOString(),
+    };
+    this.logEvent('diagnostics_package_exported', {
+      category: 'diagnostics',
+      exportId,
+      zipPath,
+      machineId: normalizedMachineId,
+    });
+    return {
+      exportId,
+      zipPath,
+      snapshotPath,
+      machineId: normalizedMachineId,
+    };
+  }
+
+  async openLatestDiagnosticsExportFolder() {
+    const latestPath = this.latestDiagnosticsExport?.zipPath;
+    if (!latestPath || !fs.existsSync(latestPath)) {
+      throw new Error('No diagnostics export package available');
+    }
+    await new Promise((resolve, reject) => {
+      execFile('explorer.exe', ['/select,', latestPath], (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+    this.logEvent('diagnostics_export_folder_opened', {
+      category: 'diagnostics',
+      zipPath: latestPath,
+    });
+    return {
+      zipPath: latestPath,
+    };
+  }
+
   ensureStorage() {
     fs.mkdirSync(MEDIA_ROOT, { recursive: true });
     fs.mkdirSync(INSTALLERS_ROOT, { recursive: true });
     fs.mkdirSync(RELEASES_ROOT, { recursive: true });
     fs.mkdirSync(SCREENSHOTS_ROOT, { recursive: true });
+    fs.mkdirSync(DIAGNOSTICS_ROOT, { recursive: true });
     fs.mkdirSync(path.join(STORAGE_ROOT, '_uploads_assets'), { recursive: true });
     fs.mkdirSync(path.join(STORAGE_ROOT, '_uploads_installers'), { recursive: true });
     if (!fs.existsSync(PLAYLIST_PATH)) {
@@ -185,8 +406,21 @@ class AdServer {
       });
       next();
     });
+    this.app.get(['/', '/index.html'], (_req, res) => {
+      try {
+        const html = fs.readFileSync(ADMIN_UI_INDEX_PATH, 'utf8');
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
+        res.type('html').send(html.replace(/__AD_ADMIN_TOKEN_JSON__/g, JSON.stringify(this.adminToken)));
+      } catch (error) {
+        res.status(500).send(error.message);
+      }
+    });
     this.app.use(
       express.static(path.join(__dirname, '../admin-ui'), {
+        index: false,
         etag: false,
         lastModified: false,
         setHeaders: (res) => {
@@ -203,7 +437,6 @@ class AdServer {
     this.app.use('/screenshots', express.static(SCREENSHOTS_ROOT));
     registerSystemRoutes(this, {
       app: this.app,
-      adminToken: ADMIN_TOKEN,
       httpPort: HTTP_PORT,
       wsPort: WS_PORT,
       udpPort: UDP_PORT,
@@ -213,36 +446,9 @@ class AdServer {
       mediaRoot: MEDIA_ROOT,
     });
     registerPlaylistRoutes(this, { app: this.app });
-    registerDeviceRoutes(this, { app: this.app });
-
-    this.app.post('/api/installers/upload', this.installerUpload.single('file'), async (req, res) => {
-      try {
-        if (!req.file) {
-          res.status(400).json({ success: false, error: 'file is required' });
-          return;
-        }
-
-        const originalExt = path.extname(req.file.originalname).toLowerCase();
-        if (originalExt !== '.msi') {
-          await fs.promises.rm(req.file.path, { force: true });
-          res.status(400).json({ success: false, error: 'Only .msi files are allowed' });
-          return;
-        }
-
-        const fileHash = this.createMd5Hash(req.file.path);
-        const safeFileName = `${fileHash}.msi`;
-        const targetPath = path.join(INSTALLERS_ROOT, safeFileName);
-
-        try {
-          await fs.promises.access(targetPath, fs.constants.F_OK);
-        } catch (_error) {
-          await fs.promises.copyFile(req.file.path, targetPath);
-        }
-        await fs.promises.rm(req.file.path, { force: true });
-        res.json({ success: true, installer: this.getInstallerCatalog().find((item) => item.fileName === safeFileName) });
-      } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-      }
+    registerDeviceRoutes(this, {
+      app: this.app,
+      installersRoot: INSTALLERS_ROOT,
     });
   }
 
@@ -371,81 +577,29 @@ class AdServer {
     return 5000;
   }
 
-  summarizePlaylist(machineId, payload) {
-    const items = Array.isArray(payload?.items) ? payload.items : [];
-    return {
-      machineId: machineId || null,
-      mode: payload?.mode || 'loop',
-      itemCount: items.length,
-      items: items.map((item) => ({
-        type: item.type || this.getMediaType(item.path || item.fileName || item.src || ''),
-        path: item.path || item.fileName || item.src || null,
-        durationMs: typeof item.durationMs === 'number' ? item.durationMs : null,
-      })),
-    };
-  }
-
   getServerIpForMachine(machineId) {
     const device = machineId ? this.discoveredDevices.get(machineId) : null;
     return (device && device.serverIp) || this.getPreferredServerIp();
   }
 
   getLocalIPv4Addresses() {
-    return Object.values(os.networkInterfaces())
-      .flat()
-      .filter((entry) => entry && entry.family === 'IPv4' && !entry.internal)
-      .map((entry) => entry.address);
+    return networkUtils.getLocalIPv4Addresses();
   }
 
   isPrivateLanIp(address) {
-    const parts = String(address || '').split('.').map((part) => Number(part));
-    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
-      return false;
-    }
-
-    return (
-      parts[0] === 10 ||
-      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
-      (parts[0] === 192 && parts[1] === 168)
-    );
+    return networkUtils.isPrivateLanIp(address);
   }
 
   getPreferredServerIp() {
-    const candidates = this.getLocalIPv4Addresses();
-    const privateCandidates = candidates.filter((address) => this.isPrivateLanIp(address));
-    if (privateCandidates.length) {
-      return privateCandidates[0];
-    }
-    return candidates[0] || ip.address();
+    return networkUtils.getPreferredServerIp();
   }
 
   getIpv4PrefixScore(left, right) {
-    const leftParts = String(left || '').split('.');
-    const rightParts = String(right || '').split('.');
-    let score = 0;
-    for (let index = 0; index < 4; index += 1) {
-      if (leftParts[index] !== rightParts[index]) {
-        break;
-      }
-      score += 1;
-    }
-    return score;
+    return networkUtils.getIpv4PrefixScore(left, right);
   }
 
   resolveServerIpForClient(clientIp) {
-    const candidates = this.getLocalIPv4Addresses();
-    if (!candidates.length) {
-      return this.getPreferredServerIp();
-    }
-
-    const ranked = candidates
-      .map((address) => ({
-        address,
-        score: this.getIpv4PrefixScore(address, clientIp) + (this.isPrivateLanIp(address) ? 10 : 0),
-      }))
-      .sort((left, right) => right.score - left.score);
-
-    return ranked[0]?.address || this.getPreferredServerIp();
+    return networkUtils.resolveServerIpForClient(clientIp);
   }
 
   createAbsoluteUrl(machineId, basePath, fileName) {
@@ -460,6 +614,9 @@ class AdServer {
     const device = this.discoveredDevices.get(machineId);
     if (!device?.ip) {
       return Promise.reject(new Error(`Device IP is unavailable for ${machineId}`));
+    }
+    if (!this.remoteStartUser || !this.remoteStartPassword) {
+      return Promise.reject(new Error('Remote start credentials are not configured on the server'));
     }
 
     const fallbackToShareTrigger = (reasonMessage) => {
@@ -491,8 +648,8 @@ class AdServer {
       const args = [
         '/Run',
         '/S', device.ip,
-        '/U', REMOTE_START_USER,
-        '/P', REMOTE_START_PASSWORD,
+        '/U', this.remoteStartUser,
+        '/P', this.remoteStartPassword,
         '/TN', REMOTE_START_TASK_NAME,
       ];
 
@@ -646,6 +803,7 @@ class AdServer {
   }
 
   async pushPlaylistAssetsToDevice(machineId, playlist) {
+    const syncId = playlist?.syncId || this.createTraceId('playlist');
     const folderExpansions = new Map();
     const mediaItems = Array.isArray(playlist?.items)
       ? playlist.items.flatMap((item) => {
@@ -682,8 +840,10 @@ class AdServer {
 
     try {
       for (const item of mediaItems) {
-        const startedMs = Date.now();
-        log.info('Pushing playlist asset to client', {
+        const itemStartedMs = Date.now();
+        this.logEvent('playlist_asset_push_started', {
+          category: 'playlist',
+          syncId,
           machineId,
           fileName: item.fileName,
           size: item.size || null,
@@ -710,16 +870,26 @@ class AdServer {
 
         const result = await this.copyAssetToClient(machineId, item.fileName, item.sha256 || null);
         transferredBytes += Number(item.size || result.size || 0);
-        log.info('Playlist asset pushed to client', {
+        this.logEvent('playlist_asset_push_completed', {
+          category: 'playlist',
+          syncId,
           machineId,
           fileName: item.fileName,
           skipped: result.skipped,
           size: result.size,
-          durationMs: Date.now() - startedMs,
+          durationMs: Date.now() - itemStartedMs,
           targetPath: result.targetPath,
         });
       }
     } catch (error) {
+      this.logEvent('playlist_asset_push_failed', {
+        category: 'playlist',
+        syncId,
+        machineId,
+        transferredBytes,
+        totalBytes,
+        error: error.message,
+      }, 'warn');
       this.updateDevice(machineId, {
         downloadStatus: {
           ...((this.discoveredDevices.get(machineId) || {}).downloadStatus || {}),
@@ -770,8 +940,19 @@ class AdServer {
       },
     });
 
+    this.logEvent('playlist_asset_push_batch_completed', {
+      category: 'playlist',
+      syncId,
+      machineId,
+      assetCount: mediaItems.length,
+      transferredBytes,
+      totalBytes,
+      durationMs: Date.now() - startedMs,
+    });
+
     return {
       ...playlist,
+      syncId,
       items: (playlist.items || []).map((item) => {
         if (item?.type === 'folder' && item.path) {
           const expandedItems = folderExpansions.get(item.path) || [];
@@ -809,7 +990,7 @@ class AdServer {
     const fileName = `${machineId}.png`;
     const filePath = path.join(SCREENSHOTS_ROOT, fileName);
     fs.writeFileSync(filePath, Buffer.from(match[1], 'base64'));
-    return `http://${ip.address()}:${HTTP_PORT}/screenshots/${encodeURIComponent(fileName)}`;
+    return `http://${this.getPreferredServerIp()}:${HTTP_PORT}/screenshots/${encodeURIComponent(fileName)}`;
   }
 
   getInstallerCatalog(machineId = null) {
@@ -1075,8 +1256,15 @@ class AdServer {
   }
 
   async saveAndDispatchPlaylist(machineId, payload) {
-    const normalized = this.normalizePlaylistDocument(payload, machineId || null);
-    log.info('Saving playlist document', this.summarizePlaylist(machineId, normalized));
+    const syncId = payload?.syncId || this.createTraceId('playlist');
+    const normalized = {
+      ...this.normalizePlaylistDocument(payload, machineId || null),
+      syncId,
+    };
+    this.logEvent('playlist_save_requested', {
+      category: 'playlist',
+      ...this.summarizePlaylistForLog(machineId, normalized),
+    });
 
     if (machineId) {
       const overrides = this.loadDevicePlaylists();
@@ -1093,10 +1281,21 @@ class AdServer {
       if (ws && ws.readyState === WebSocket.OPEN) {
         this.sendCommand(ws, 'SET_PLAYLIST', { ...resolved, applyStrategy: 'immediate' });
       }
+      this.logEvent('playlist_dispatch_completed', {
+        category: 'playlist',
+        ...this.summarizePlaylistForLog(machineId, resolved),
+        target: 'single-device',
+      });
       return resolved;
     }
 
     this.broadcastCommand('SET_PLAYLIST', resolved);
+    this.logEvent('playlist_dispatch_completed', {
+      category: 'playlist',
+      ...this.summarizePlaylistForLog(machineId, resolved),
+      target: 'broadcast',
+      approvedClientCount: Array.from(this.clients.keys()).filter((clientMachineId) => this.approvedDevices.has(clientMachineId)).length,
+    });
     return resolved;
   }
 
@@ -1133,6 +1332,38 @@ class AdServer {
   updateDevice(machineId, patch) {
     const previous = this.discoveredDevices.get(machineId) || { machineId };
     this.discoveredDevices.set(machineId, { ...previous, ...patch });
+    this.writeDiagnosticsSnapshot('device-update');
+  }
+
+  revokeClientSession(machineId, reason = 'revoked') {
+    const ws = this.clients.get(machineId);
+    if (!ws) {
+      return;
+    }
+
+    try {
+      ws.__adRevoked = reason;
+      ws.close(4001, reason);
+    } catch (error) {
+      this.logEvent('ws_revoke_close_failed', {
+        category: 'ws',
+        machineId,
+        reason,
+        message: error.message,
+      }, 'warn');
+      try {
+        ws.terminate();
+      } catch (terminateError) {
+        this.logEvent('ws_revoke_terminate_failed', {
+          category: 'ws',
+          machineId,
+          reason,
+          message: terminateError.message,
+        }, 'warn');
+      }
+    } finally {
+      this.clients.delete(machineId);
+    }
   }
 
   broadcastToAdmin(payload) {
@@ -1153,14 +1384,25 @@ class AdServer {
   }
 
   sendCommand(ws, command, data) {
-    log.info('Sending command to client', {
+    const commandId = this.createTraceId('cmd');
+    const targetMachineId = Array.from(this.clients.entries()).find(([, candidate]) => candidate === ws)?.[0] || null;
+    this.logEvent('command_sent', {
+      category: 'command',
+      commandId,
       command,
-      targetMachineId: Array.from(this.clients.entries()).find(([, candidate]) => candidate === ws)?.[0] || null,
-      summary: command === 'SET_PLAYLIST' ? this.summarizePlaylist(data?.machineId || null, data || {}) : data,
+      targetMachineId,
+      syncId: data?.syncId || null,
+      summary: command === 'SET_PLAYLIST'
+        ? this.summarizePlaylistForLog(targetMachineId, data || {})
+        : {
+          machineId: targetMachineId,
+          keys: data && typeof data === 'object' ? Object.keys(data) : [],
+        },
     });
     ws.send(
       JSON.stringify({
         type: 'COMMAND',
+        commandId,
         command,
         data,
       })
@@ -1177,8 +1419,9 @@ class AdServer {
   }
 
   start() {
+    this.writeDiagnosticsSnapshot('server-start', true);
     this.httpServer.listen(HTTP_PORT, () => {
-      log.info(`Admin UI ready at http://${ip.address()}:${HTTP_PORT}`);
+      log.info(`Admin UI ready at http://${this.getPreferredServerIp()}:${HTTP_PORT}`);
     });
 
     this.udpSocket.bind(UDP_PORT, () => {

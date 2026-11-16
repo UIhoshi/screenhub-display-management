@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -171,6 +171,43 @@
     .download-chip.visible {
       display: block;
     }
+    .connection-panel {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .connection-panel label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--text);
+      font-size: 12px;
+      letter-spacing: 0.02em;
+    }
+    .connection-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .connection-row input {
+      flex: 1 1 220px;
+      min-width: 0;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.24);
+      color: var(--text);
+      outline: none;
+      font: inherit;
+    }
+    .connection-proof {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
     .lang-switch,
     .overlay-actions {
       display: flex;
@@ -249,17 +286,41 @@
         <button id="lang-en" type="button">EN</button>
         <button id="lang-ja" type="button">日</button>
       </div>
+      <div class="connection-panel" id="connection-panel">
+        <label id="server-address-label" for="server-address-input">Server address</label>
+        <div class="connection-row">
+          <input id="server-address-input" type="text" placeholder="192.168.1.10 or http://server:3000">
+          <button id="save-server-address-button" type="button">Save</button>
+          <button id="test-server-address-button" type="button">Test</button>
+          <button id="auto-discovery-button" type="button">Auto</button>
+        </div>
+        <div class="connection-proof" id="connection-proof">No server tested yet.</div>
+      </div>
       <div class="overlay-actions">
+        <button id="export-diagnostics-button" type="button">Export Diagnostics</button>
+        <button id="open-diagnostics-folder-button" type="button">Open Diagnostics Folder</button>
+        <button id="copy-diagnostics-path-button" type="button">Copy Diagnostics Path</button>
         <button id="quit-button" class="danger" type="button">Exit</button>
       </div>
+      <div class="meta" id="diagnostics-export-meta" style="margin-top:8px;">No diagnostics exported yet.</div>
     </div>
   </div>
 
   <script>
     const statusEl = document.getElementById('status');
     const appTitleEl = document.getElementById('app-title');
+    const exportDiagnosticsButton = document.getElementById('export-diagnostics-button');
+    const openDiagnosticsFolderButton = document.getElementById('open-diagnostics-folder-button');
+    const copyDiagnosticsPathButton = document.getElementById('copy-diagnostics-path-button');
+    const diagnosticsExportMetaEl = document.getElementById('diagnostics-export-meta');
     const quitButton = document.getElementById('quit-button');
     const playbackMenuTrigger = document.getElementById('playback-menu-trigger');
+    const serverAddressLabel = document.getElementById('server-address-label');
+    const serverAddressInput = document.getElementById('server-address-input');
+    const saveServerAddressButton = document.getElementById('save-server-address-button');
+    const testServerAddressButton = document.getElementById('test-server-address-button');
+    const autoDiscoveryButton = document.getElementById('auto-discovery-button');
+    const connectionProofEl = document.getElementById('connection-proof');
     const overlayEl = document.querySelector('.overlay');
     const progressShellEl = document.getElementById('download-progress');
     const downloadChipEl = document.getElementById('download-chip');
@@ -290,6 +351,14 @@
         mode: 'Mode',
         maintenance: 'Maintenance',
         quit: 'Exit',
+        exportDiagnostics: 'Export Diagnostics',
+        exportDiagnosticsBusy: 'Exporting...',
+        openDiagnosticsFolder: 'Open Diagnostics Folder',
+        copyDiagnosticsPath: 'Copy Path',
+        copyDiagnosticsPathDone: 'Path copied.',
+        diagnosticsExportEmpty: 'No diagnostics exported yet.',
+        diagnosticsExportLatest: (path) => `Latest diagnostics: ${path}`,
+        exportDiagnosticsDone: (path) => `Diagnostics exported: ${path}`,
         chooseFolder: 'Media Folder',
         mediaPath: 'Media Path',
         menu: 'Menu',
@@ -298,6 +367,15 @@
         langJa: 'Japanese',
         downloading: 'Downloading',
         completed: 'Completed',
+        serverAddress: 'Server address',
+        saveServerAddress: 'Save',
+        testServer: 'Test',
+        autoDiscovery: 'Auto',
+        connectionMode: 'Mode',
+        localIp: 'Local IP',
+        probeOk: 'Server reachable',
+        probeFail: 'Server unreachable',
+        probeEmpty: 'No server tested yet.',
       },
       zh: {
         appTitle: '广告机客户端',
@@ -311,6 +389,14 @@
         mode: '播放模式',
         maintenance: '维护状态',
         quit: '退出',
+        exportDiagnostics: '导出诊断',
+        exportDiagnosticsBusy: '导出中...',
+        openDiagnosticsFolder: '打开诊断目录',
+        copyDiagnosticsPath: '复制路径',
+        copyDiagnosticsPathDone: '路径已复制。',
+        diagnosticsExportEmpty: '尚未导出诊断。',
+        diagnosticsExportLatest: (path) => `最近诊断：${path}`,
+        exportDiagnosticsDone: (path) => `诊断已导出：${path}`,
         chooseFolder: '素材目录',
         mediaPath: '素材目录',
         menu: '菜单',
@@ -319,6 +405,15 @@
         langJa: '日文',
         downloading: '下载中',
         completed: '完成',
+        serverAddress: '服务器地址',
+        saveServerAddress: '保存',
+        testServer: '测试',
+        autoDiscovery: '自动发现',
+        connectionMode: '连接模式',
+        localIp: '本机 IP',
+        probeOk: '服务端可达',
+        probeFail: '服务端不可达',
+        probeEmpty: '尚未测试服务器。',
       },
       ja: {
         appTitle: '広告配信クライアント',
@@ -332,6 +427,14 @@
         mode: '再生モード',
         maintenance: 'メンテナンス',
         quit: '終了',
+        exportDiagnostics: '診断を出力',
+        exportDiagnosticsBusy: '出力中...',
+        openDiagnosticsFolder: '診断フォルダーを開く',
+        copyDiagnosticsPath: 'パスをコピー',
+        copyDiagnosticsPathDone: 'パスをコピーしました。',
+        diagnosticsExportEmpty: 'まだ診断は出力されていません。',
+        diagnosticsExportLatest: (path) => `最新の診断: ${path}`,
+        exportDiagnosticsDone: (path) => `診断を出力しました: ${path}`,
         chooseFolder: '素材フォルダー',
         mediaPath: '素材フォルダー',
         menu: 'メニュー',
@@ -340,6 +443,15 @@
         langJa: '日本語',
         downloading: 'ダウンロード中',
         completed: '完了',
+        serverAddress: 'サーバーアドレス',
+        saveServerAddress: '保存',
+        testServer: 'テスト',
+        autoDiscovery: '自動検出',
+        connectionMode: '接続モード',
+        localIp: 'ローカル IP',
+        probeOk: 'サーバー到達可能',
+        probeFail: 'サーバー到達不可',
+        probeEmpty: 'まだサーバーをテストしていません。',
       },
     };
 
@@ -361,12 +473,15 @@
     };
 
     let playbackMode = 'loop';
+    let currentPlaylistSyncId = null;
     let playlist = [];
     let currentIndex = 0;
     let rotationTimer = null;
     let pendingPayload = null;
     let playbackSessionId = 0;
     let latestStatus = {};
+    let latestDiagnosticsExportPath = '';
+    let diagnosticsExportInFlight = false;
     let menuPinned = false;
     let activeStageIndex = 0;
     let activeFolderState = null;
@@ -509,13 +624,31 @@
       langButtons.en.textContent = t('langEn');
       langButtons.ja.textContent = t('langJa');
       quitButton.textContent = t('quit');
+      exportDiagnosticsButton.textContent = diagnosticsExportInFlight ? t('exportDiagnosticsBusy') : t('exportDiagnostics');
+      openDiagnosticsFolderButton.textContent = t('openDiagnosticsFolder');
+      copyDiagnosticsPathButton.textContent = t('copyDiagnosticsPath');
       chooseFolderButton.textContent = t('chooseFolder');
       playbackMenuTrigger.textContent = t('menu');
       Object.entries(langButtons).forEach(([lang, button]) => {
         button.classList.toggle('active', lang === currentLang);
       });
       showStatus(latestStatus);
+      updateDiagnosticsExportButtons();
+      updateDiagnosticsExportMeta();
       updateOverlayVisibility();
+    }
+
+    function updateDiagnosticsExportButtons() {
+      exportDiagnosticsButton.disabled = diagnosticsExportInFlight;
+      openDiagnosticsFolderButton.disabled = !latestDiagnosticsExportPath || diagnosticsExportInFlight;
+      copyDiagnosticsPathButton.disabled = !latestDiagnosticsExportPath || diagnosticsExportInFlight;
+      exportDiagnosticsButton.textContent = diagnosticsExportInFlight ? t('exportDiagnosticsBusy') : t('exportDiagnostics');
+    }
+
+    function updateDiagnosticsExportMeta() {
+      diagnosticsExportMetaEl.textContent = latestDiagnosticsExportPath
+        ? t('diagnosticsExportLatest', latestDiagnosticsExportPath)
+        : t('diagnosticsExportEmpty');
     }
 
     function resetStage(stage) {
@@ -735,6 +868,7 @@
         } catch (error) {
           activeFolderState = null;
           window.playerAPI.reportError({
+            syncId: currentPlaylistSyncId,
             type: 'FOLDER_SCAN_ERROR',
             path: rootItem.path,
             message: error?.message || 'Failed to scan local media folder',
@@ -760,6 +894,7 @@
         }
         clearTimeout(videoStartTimeout.timer);
         window.playerAPI.reportError({
+          syncId: currentPlaylistSyncId,
           type: 'MEDIA_ERROR',
           src: item.src,
           originalSrc: item.originalSrc,
@@ -775,6 +910,7 @@
         targetStage.video.onerror = reportError;
         targetStage.video.onloadedmetadata = () => {
           logPlayerEvent({
+            syncId: currentPlaylistSyncId,
             type: 'VIDEO_METADATA',
             src: item.src,
             originalSrc: item.originalSrc,
@@ -785,6 +921,7 @@
         };
         targetStage.video.oncanplay = () => {
           logPlayerEvent({
+            syncId: currentPlaylistSyncId,
             type: 'VIDEO_CAN_PLAY',
             src: item.src,
             originalSrc: item.originalSrc,
@@ -795,6 +932,7 @@
         targetStage.video.onplaying = () => {
           clearTimeout(videoStartTimeout.timer);
           logPlayerEvent({
+            syncId: currentPlaylistSyncId,
             type: 'VIDEO_PLAYING',
             src: item.src,
             originalSrc: item.originalSrc,
@@ -820,6 +958,13 @@
         if (sourcePath.endsWith('.html') || sourcePath.endsWith('.htm')) {
           targetStage.html.src = item.src;
           targetStage.html.classList.add('active');
+          logPlayerEvent({
+            syncId: currentPlaylistSyncId,
+            type: 'PLAYBACK_ITEM_ACTIVATED',
+            mediaType: 'html',
+            src: item.src,
+            originalSrc: item.originalSrc,
+          });
           activateStage(targetStage);
           scheduleNext(item.durationMs || 5000);
           prewarmUpcomingFolder();
@@ -830,6 +975,13 @@
           if (sessionId !== playbackSessionId) return;
           targetStage.text.textContent = textContent;
           targetStage.text.classList.add('active');
+          logPlayerEvent({
+            syncId: currentPlaylistSyncId,
+            type: 'PLAYBACK_ITEM_ACTIVATED',
+            mediaType: 'text',
+            src: item.src,
+            originalSrc: item.originalSrc,
+          });
           activateStage(targetStage);
           scheduleNext(item.durationMs || 5000);
           prewarmUpcomingFolder();
@@ -842,7 +994,16 @@
 
       targetStage.image.src = item.src;
       targetStage.image.onerror = reportError;
-      targetStage.image.onload = () => activateStage(targetStage);
+      targetStage.image.onload = () => {
+        logPlayerEvent({
+          syncId: currentPlaylistSyncId,
+          type: 'PLAYBACK_ITEM_ACTIVATED',
+          mediaType: 'image',
+          src: item.src,
+          originalSrc: item.originalSrc,
+        });
+        activateStage(targetStage);
+      };
       targetStage.image.classList.add('active');
       if (targetStage.image.complete) {
         activateStage(targetStage);
@@ -853,6 +1014,7 @@
 
     function applyPlaybackPayload(payload) {
       const nextPlaylist = Array.isArray(payload.items) ? payload.items : [];
+      currentPlaylistSyncId = payload.syncId || currentPlaylistSyncId || null;
       const currentStageRoot = getStage(activeStageIndex).root;
       const currentItemKey = getStableItemKey(playlist[currentIndex]);
       const nextCurrentIndex = currentItemKey ? nextPlaylist.findIndex((item) => getStableItemKey(item) === currentItemKey) : -1;
@@ -879,6 +1041,7 @@
       folderPlaybackCache.clear();
 
       logPlayerEvent({
+        syncId: currentPlaylistSyncId,
         type: 'PLAYLIST_APPLIED',
         mode: playbackMode,
         itemCount: playlist.length,
@@ -902,11 +1065,34 @@
       updateOverlayVisibility();
     }
 
+
+    function formatConnectionProbe(probe) {
+      if (!probe) return t('probeEmpty');
+      const prefix = probe.ok ? t('probeOk') : t('probeFail');
+      const parts = [prefix];
+      if (probe.target) parts.push(probe.target);
+      if (typeof probe.latencyMs === 'number') parts.push(`${probe.latencyMs}ms`);
+      if (probe.error) parts.push(probe.error);
+      if (probe.pairingCode) parts.push(`${t('pairingCode')}: ${probe.pairingCode}`);
+      return parts.join(' | ');
+    }
+
+    function updateConnectionControls() {
+      serverAddressLabel.textContent = t('serverAddress');
+      saveServerAddressButton.textContent = t('saveServerAddress');
+      testServerAddressButton.textContent = t('testServer');
+      autoDiscoveryButton.textContent = t('autoDiscovery');
+      connectionProofEl.textContent = formatConnectionProbe(latestStatus.connectionProbe);
+    }
+
     function showStatus(payload) {
       latestStatus = { ...latestStatus, ...(payload || {}) };
       const parts = [];
+      if (latestStatus.connectionMode) parts.push(`${t('connectionMode')}: ${latestStatus.connectionMode}`);
+      if (latestStatus.localIp) parts.push(`${t('localIp')}: ${latestStatus.localIp}`);
       if (latestStatus.discovery) parts.push(`${t('discovery')}: ${latestStatus.discovery}`);
       if (latestStatus.ws) parts.push(`WS: ${latestStatus.ws}`);
+      if (latestStatus.configuredServerAddress) parts.push(`${t('serverAddress')}: ${latestStatus.configuredServerAddress}`);
       if (latestStatus.serverIp) parts.push(`${t('server')}: ${latestStatus.serverIp}`);
       if (typeof latestStatus.approved === 'boolean') parts.push(`${t('approved')}: ${latestStatus.approved}`);
       if (latestStatus.retryInMs) parts.push(`${t('retry')}: ${latestStatus.retryInMs}ms`);
@@ -917,6 +1103,7 @@
       if (latestStatus.mediaLibraryPath) parts.push(`${t('mediaPath')}: ${latestStatus.mediaLibraryPath}`);
       statusEl.textContent = parts.length ? parts.join(' | ') : t('waiting');
       updateProgressVisual();
+      updateConnectionControls();
     }
 
     Object.entries(langButtons).forEach(([lang, button]) => {
@@ -931,6 +1118,45 @@
       window.playerAPI.quitApp();
     });
 
+    exportDiagnosticsButton.addEventListener('click', async () => {
+      diagnosticsExportInFlight = true;
+      updateDiagnosticsExportButtons();
+      try {
+        const result = await window.playerAPI.exportDiagnostics();
+        latestDiagnosticsExportPath = result.latestDiagnosticsExportPath || result.diagnosticsSnapshotPath || result.logDir || '';
+        updateDiagnosticsExportMeta();
+        window.alert(t('exportDiagnosticsDone', latestDiagnosticsExportPath || '-'));
+      } catch (error) {
+        window.alert(error?.message || String(error));
+      } finally {
+        diagnosticsExportInFlight = false;
+        updateDiagnosticsExportButtons();
+      }
+    });
+
+    openDiagnosticsFolderButton.addEventListener('click', async () => {
+      try {
+        const result = await window.playerAPI.openDiagnosticsFolder();
+        latestDiagnosticsExportPath = result.targetPath || latestDiagnosticsExportPath;
+        updateDiagnosticsExportMeta();
+        updateDiagnosticsExportButtons();
+      } catch (error) {
+        window.alert(error?.message || String(error));
+      }
+    });
+
+    copyDiagnosticsPathButton.addEventListener('click', async () => {
+      try {
+        if (!latestDiagnosticsExportPath) {
+          throw new Error(t('diagnosticsExportEmpty'));
+        }
+        await navigator.clipboard.writeText(latestDiagnosticsExportPath);
+        window.alert(t('copyDiagnosticsPathDone'));
+      } catch (error) {
+        window.alert(error?.message || String(error));
+      }
+    });
+
     const chooseFolderButton = document.createElement('button');
     chooseFolderButton.type = 'button';
     chooseFolderButton.id = 'choose-folder-button';
@@ -939,6 +1165,55 @@
       try {
         await window.playerAPI.chooseMediaFolder();
       } catch (_error) {
+      }
+    });
+
+
+    async function refreshConnectionSettings() {
+      try {
+        const settings = await window.playerAPI.getConnectionSettings();
+        latestStatus = { ...latestStatus, ...(settings || {}) };
+        if (settings?.manualServerAddress && document.activeElement !== serverAddressInput) {
+          serverAddressInput.value = settings.manualServerAddress;
+        } else if (settings?.fixedServerAddress && document.activeElement !== serverAddressInput) {
+          serverAddressInput.value = settings.fixedServerAddress;
+        }
+        showStatus(settings || {});
+      } catch (_error) {
+      }
+    }
+
+    testServerAddressButton.addEventListener('click', async () => {
+      try {
+        const result = await window.playerAPI.testServerConnection(serverAddressInput.value.trim());
+        latestStatus.connectionProbe = result.probe || null;
+        updateConnectionControls();
+      } catch (error) {
+        latestStatus.connectionProbe = { ok: false, error: error?.message || String(error) };
+        updateConnectionControls();
+      }
+    });
+
+    saveServerAddressButton.addEventListener('click', async () => {
+      try {
+        const result = await window.playerAPI.setManualServerAddress(serverAddressInput.value.trim());
+        latestStatus = { ...latestStatus, ...(result || {}) };
+        updateConnectionControls();
+      } catch (error) {
+        latestStatus.connectionProbe = { ok: false, error: error?.message || String(error) };
+        updateConnectionControls();
+      }
+    });
+
+    autoDiscoveryButton.addEventListener('click', async () => {
+      try {
+        const result = await window.playerAPI.enableAutoDiscovery();
+        latestStatus = { ...latestStatus, ...(result || {}), connectionProbe: null };
+        serverAddressInput.value = '';
+        showStatus(result || {});
+      } catch (error) {
+        latestStatus.connectionProbe = { ok: false, error: error?.message || String(error) };
+        updateConnectionControls();
       }
     });
 
@@ -973,6 +1248,7 @@
 
     window.addEventListener('error', (event) => {
       window.playerAPI.reportError({
+        syncId: currentPlaylistSyncId,
         type: 'RENDERER_ERROR',
         message: event.message || 'Renderer error',
         filename: event.filename || null,
@@ -984,6 +1260,7 @@
     window.addEventListener('unhandledrejection', (event) => {
       const reason = event.reason;
       window.playerAPI.reportError({
+        syncId: currentPlaylistSyncId,
         type: 'RENDERER_UNHANDLED_REJECTION',
         message: reason?.message || String(reason || 'Unhandled promise rejection'),
         stack: reason?.stack || null,
@@ -991,7 +1268,9 @@
     });
 
     renderLanguage();
+    updateConnectionControls();
     window.playerAPI.onStatus(showStatus);
+    refreshConnectionSettings();
     window.playerAPI.notifyReady();
   </script>
 </body>

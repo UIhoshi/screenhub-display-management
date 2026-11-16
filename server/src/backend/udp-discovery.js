@@ -1,4 +1,4 @@
-const log = require('electron-log');
+﻿const log = require('electron-log');
 
 function registerUdpDiscovery(server, options) {
   const { httpPort, wsPort } = options;
@@ -28,10 +28,12 @@ function registerUdpDiscovery(server, options) {
         connected: server.clients.has(data.machineId),
         lastSeen: new Date().toISOString(),
       });
-      log.info('Discovery request handled', {
+      server.logEvent('udp_discovery_request_handled', {
+        category: 'discovery',
         machineId: data.machineId,
         clientIp: rinfo.address,
         serverIp,
+        approved,
       });
 
       server.udpSocket.send(

@@ -10,10 +10,16 @@
 
 - 当前稳定备份根目录：
   - [project-backups/backups/v1.0.0-stable](C:/Users/XU%20RONG/Documents/workspace/Advertising%20screen/project-backups/backups/v1.0.0-stable)
+- 当前更新后的稳定备份根目录：
+  - [project-backups/backups/v1.0.1-stable](C:/Users/XU%20RONG/Documents/workspace/Advertising%20screen/project-backups/backups/v1.0.1-stable)
 - 源码快照：
   - [project-backups/backups/v1.0.0-stable/source-snapshot](C:/Users/XU%20RONG/Documents/workspace/Advertising%20screen/project-backups/backups/v1.0.0-stable/source-snapshot)
+- 更新后的源码快照：
+  - [project-backups/backups/v1.0.1-stable/source-snapshot](C:/Users/XU%20RONG/Documents/workspace/Advertising%20screen/project-backups/backups/v1.0.1-stable/source-snapshot)
 - 散包快照：
   - [project-backups/backups/v1.0.0-stable/runtime-snapshot](C:/Users/XU%20RONG/Documents/workspace/Advertising%20screen/project-backups/backups/v1.0.0-stable/runtime-snapshot)
+- 更新后的散包 / 安装包快照：
+  - [project-backups/backups/v1.0.1-stable/runtime-snapshot](C:/Users/XU%20RONG/Documents/workspace/Advertising%20screen/project-backups/backups/v1.0.1-stable/runtime-snapshot)
 
 ## 源码快照内容
 
@@ -46,6 +52,12 @@
 - 客户端当前按钮交互/界面切换逻辑已视为稳定基线，不允许在未做专项回归前随意调整按钮位置、交换逻辑、显示条件或点击流
 - 客户端当前语言切换逻辑已视为稳定基线，不允许在未做专项回归前重构语言菜单、语言状态同步或多语言资源加载链路
 - 远端散包目录 `\\\\172.16.1.10\\screen\\client-unpacked` 已同步到当前稳定版 `app.asar`
+- `v1.0.1-stable` 已进一步固化以下稳定点：
+  - 客户端启动时自动清理冲突实例、旧自启动、旧计划任务和旧运行目录
+  - 服务端默认阻止第二实例，避免多服务端并存
+  - 冲突清理边界已明确：默认不清空用户配置、服务端存储、播放单和素材库
+  - 仓库公开交付基线已建立在 `UIhoshi/screenhub-display-management`
+  - GitHub README 已升级为多语首页结构：`README.md`、`README.zh-CN.md`、`README.ja.md`
 
 ## 回退方法
 
@@ -53,3 +65,4 @@
 - 散包回退：直接用 `runtime-snapshot` 内对应目录覆盖 `windows/client-unpacked` 或 `windows/server-unpacked`
 - 安装包回退：直接使用 `runtime-snapshot` 内保留的两个 `1.0.0` 安装包
 - 目录约束：稳定备份不再放在 `windows/` 下，统一固定到 `project-backups/backups/v1.0.0-stable`
+- 若需回退到带冲突清理逻辑的当前稳定版，应优先使用 `project-backups/backups/v1.0.1-stable`

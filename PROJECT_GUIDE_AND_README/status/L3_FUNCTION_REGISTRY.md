@@ -24,6 +24,7 @@
 
 ### [状态管理]
 - `updateDevice(machineId, patch)`: 内存中更新设备心跳与下载状态。
+- `revokeClientSession(machineId, reason)`: 主动撤销指定设备的在线 WS 会话；用于设备解绑后立刻切断旧连接，避免客户端继续沿旧会话上报状态。
 - `broadcastToAdmin(payload)`: 向已连接的后台管理页面广播实时差量消息，用于设备状态局部刷新。
 
 ---
@@ -34,8 +35,9 @@
 - `registerWebSocketGateway(server)` — `server/src/backend/ws-gateway.js:8`: 初始化 WebSocket 服务并挂载消息监听器；当前同时支持设备连接和后台管理页连接。
   - 相关函数：`server.updateDevice()` — `server/src/backend/server.js`；`server.broadcastToAdmin()` — `server/src/backend/server.js`
   - 相关消息：`HEARTBEAT`、`DOWNLOAD_STATUS`、`LOCAL_ASSET_SNAPSHOT`
-- `REGISTER_ADMIN`: 后台页面通过管理令牌建立实时监控连接。
+- `REGISTER_ADMIN`: 后台页面通过服务端注入的单一 admin token 建立实时监控连接，不再和前端硬编码常量分叉。
 - `HEARTBEAT / DOWNLOAD_STATUS`: 在更新设备状态后，额外广播 `DEVICE_PATCH` 给后台页面。
+- `HEARTBEAT / DOWNLOAD_STATUS` 的审批防线：若设备已被解绑，旧连接会立即收到 `AUTH_REJECTED` 并被关闭，不再继续更新设备卡片。
 - `LOCAL_ASSET_SNAPSHOT`: 接收客户端当前本地素材库快照，写入 `device.localAssetSnapshot`，并实时推送给后台页面。
 
 ### [UDP 发现 (`server/src/backend/udp-discovery.js`)]
@@ -45,8 +47,12 @@
 
 ### [HTTP 路由 (`server/src/backend/routes/*.js`)]
 - `registerAssetRoutes`: 资产上传/删除/目录读取接口。
-- `registerDeviceRoutes`: 设备审批/解绑/命令下发接口。
-- `POST /api/client/hello` — `server/src/backend/routes/system.js`: 给静态地址模式客户端提供“非 UDP 首次接入”入口；客户端可直接拿到配对码与批准状态，再决定是否建立 WS。
+- `registerDeviceRoutes`: 设备审批/解绑/命令下发接口。`POST /api/pair/unbind` 现在会同时调用 `revokeClientSession(machineId, 'device-unbound')`，确保解绑立刻失效。
+- `GET /api/client/hello` / `POST /api/client/hello` — `server/src/backend/routes/system.js`: 给静态地址模式客户端提供“非 UDP 首次接入”和连接可达性检查入口；客户端可直接拿到配对码与批准状态，再决定是否建立 WS。
+- `GET/POST /api/client/hello` 的当前风险备注 — `server/src/backend/routes/system.js`: 该入口目前未附加额外鉴权；若外部调用方已知 `machineId`，可直接读取设备 `approved` 状态与当前 `pairingCode`。该问题已登记为待处理审查项，尚未完成修复。
+- `GET /api/client/playlist` 的当前风险备注 — `server/src/backend/routes/system.js:31`: 该入口目前未附加额外鉴权；已知 `machineId` 的同网段主机可直接拉取目标设备的已解析播放单。由于 `normalizePlaylistForClient(...)` / `pushPlaylistAssetsToDevice(...)` 会生成绝对媒体访问地址，泄露面不仅限于条目元数据。该问题已登记为待处理审查项，尚未完成修复。
+- `scripts/check-logic-entry.js` — `scripts/check-logic-entry.js`: 仓库级逻辑入口校验脚本；当前会检查 `README.md`、`AGENTS.md` 是否仍指向 `AgentLogic/`，并验证入口/控制文件顶部是否保留固定英文头部规则。
+- `npm run check:logic` — `client/package.json` / `server/package.json`: 子工程级逻辑入口校验命令；统一转发到 `../scripts/check-logic-entry.js`，避免必须记忆仓库根命令。
 
 ---
 
@@ -78,6 +84,8 @@
 - `deleteLocalAssetFromDevice(machineId, assetPath)` — `server/src/admin-ui/index.html:443`: 通过已有命令通道下发 `DELETE_LOCAL_ASSET`，要求客户端删除指定本地素材并回传最新快照。
   - 相关函数：`sendCommand(machineId, command, data)` — `server/src/admin-ui/index.html:440`；`renderLocalAssetSnapshot(device)` — `server/src/admin-ui/index.html:541`
 - `initWebSocket()`: 连接服务端 WS，建立后台实时监控通道。
+- `getAdminToken()`: 从服务端注入的 `__AD_ADMIN_TOKEN__` 生成当前管理页使用的 token，不再写死独立默认值。
+- `getAdminToken()` 的当前风险备注 — `server/src/admin-ui/index.html:415`: 现状虽已消除“前后端 token 默认值分叉”，但后台页仍依赖服务端在首页响应中直接注入真实 `AD_ADMIN_TOKEN`。这意味着后台首页一旦对未认证访问暴露，HTTP 与 WS 的管理口令边界会被同步削弱。该问题已登记为待处理审查项，尚未完成修复。
 - `applyDevicePatch(machineId, patch)`: 接收 `DEVICE_PATCH` 后合并内存状态并触发局部 DOM 更新。
 - `updateDeviceCard(machineId)` — `server/src/admin-ui/index.html:551`: 通过 `data-machine-id` 只更新单个设备卡片中的数值、文本和进度条宽度，不重绘整卡。
   - 相关函数：`applyDevicePatch(machineId, patch)` — `server/src/admin-ui/index.html:552`；`renderLocalAssetSnapshot(device)` — `server/src/admin-ui/index.html:541`
@@ -89,12 +97,12 @@
 ### [主进程生命周期]
 - `createWindow()` — `client/src/main.js`：初始化全屏播放窗口。
 - `startWsWatchdog()` — `client/src/main.js`：监测 WS 连接活性，超时自动重连。
-- `parseManualServerEndpoint(rawInput)` — `client/src/main.js`: 解析客户端保存的服务器地址；当前支持 IP、主机名以及带协议的 URL，默认仍使用 `3000/3001` 端口。
-  - 相关函数：`normalizeManualServerConfig()` — `client/src/main.js`；`applyManualServerConnection()` — `client/src/main.js`
+- `parseManualServerEndpoint(rawInput)` — `client/src/main.js`: 解析客户端保存或环境变量提供的服务器地址；当前支持 IP、主机名以及带协议的 URL，默认仍使用 `3000/3001` 端口。
+  - 相关函数：`normalizeManualServerConfig()` — `client/src/main.js`；`resolveFixedServerConfigFromEnv()` — `client/src/main.js`；`applyManualServerConnection()` — `client/src/main.js`
 - `resolvePreferredLocalIp()` — `client/src/main.js`: 从当前网卡中筛选优先级最高的非回环 IPv4，作为客户端当前固定 / 主用局域网地址。
   - 相关函数：`reportHeartbeatStatus()` — `client/src/main.js`；`sendStatus()` — `client/src/main.js`
-- `applyManualServerConnection(forceReconnect)` — `client/src/main.js`: 当客户端配置了手动服务器地址或环境变量固定服务器地址后，直接建立 HTTP / WS 连接，并停止 UDP 广播发现。
-  - 相关函数：`createDiscoverySocket()` — `client/src/main.js`；`restartAutomaticDiscovery()` — `client/src/main.js`；`connectWebSocket()` — `client/src/main.js`
+- `applyManualServerConnection(forceReconnect)` — `client/src/main.js`: 当客户端配置了手动服务器地址或环境变量固定服务器地址后，先通过 HTTP hello 测试服务端可达性，再建立 HTTP / WS 连接，并停止 UDP 广播发现。
+  - 相关函数：`testConfiguredServerConnection()` — `client/src/main.js`；`probeServerHello()` — `client/src/main.js`；`createDiscoverySocket()` — `client/src/main.js`；`restartAutomaticDiscovery()` — `client/src/main.js`；`connectWebSocket()` — `client/src/main.js`
 - `applyPlaylist(payload)` — `client/src/main.js:1219`：应用服务端播放列表；遇到带 `entries` 的 `folder` 项时，会先把文件夹内部条目逐个解析为本地可播放资源，再把整个文件夹项一次性投递给渲染层。当前仍保持“整份播放单准备完后再一次性发布”，避免混合 `video + folder` 时出现先播单项、后补全列表的竞态。
   - 相关函数：`cacheMediaItem(item)` — `client/src/media-manager.js`；`reportLocalMediaAssetsSnapshot()` — `client/src/main.js:871`
 - `writeBootstrapCrash(error)` — `client/src/main.js:24`: 在主进程极早期模块加载失败时，直接写入 `client-bootstrap.log`，避免只弹 Electron 错误框而没有落地日志。
@@ -106,8 +114,8 @@
   - 相关函数：`scanLocalMediaAssets()` — `client/src/main.js:831`；`handleCommand(payload)` — `client/src/main.js:1463`；`applyPlaylist(payload)` — `client/src/main.js:1219`
 - `deleteLocalMediaAsset(relativePath)` — `client/src/main.js:896`: 删除客户端本地素材库中的指定文件，并向上清理空目录。
   - 相关函数：`handleCommand(payload)` — `client/src/main.js:1463`；`reportLocalMediaAssetsSnapshot()` — `client/src/main.js:871`
-- `player:get-connection-settings` / `player:set-manual-server-address` — `client/src/main.js` + `client/src/preload.js`: 暴露给渲染层的连接配置接口，用于读取当前手动 / 固定服务器地址状态，或在客户端界面中直接保存服务器地址并切换连接方式。
-  - 相关函数：`renderConnectionControls()` — `client/src/renderer/index.html`；`saveManualServerAddress()` — `client/src/renderer/index.html`
+- `player:get-connection-settings` / `player:test-server-connection` / `player:set-manual-server-address` / `player:enable-auto-discovery` — `client/src/main.js` + `client/src/preload.js`: 暴露给渲染层的连接配置接口，用于读取当前手动 / 固定服务器地址状态、测试 HTTP hello 可达性、保存服务器地址或切回 UDP 自动发现。
+  - 相关函数：`updateConnectionControls()` — `client/src/renderer/index.html`；`refreshConnectionSettings()` — `client/src/renderer/index.html`
 
 ### [素材同步 (`client/src/media-manager.js`)]
 - `createMediaManager(deps)` — `client/src/media-manager.js`: 初始化资产管理器。
@@ -117,7 +125,7 @@
 
 ### [渲染层播放器 (`client/src/renderer/index.html`)]
 - `renderConnectionControls()`：渲染客户端状态浮层中的“服务器地址”输入区；当前支持保存手动服务器地址，或切回 UDP 自动发现。
-- `saveManualServerAddress()` / `enableAutoDiscovery()`：从客户端界面直接写入服务器地址配置并触发重新连接；适用于客户现场 UDP 广播被阻断但服务器地址固定的场景。
+- `saveServerAddressButton` / `testServerAddressButton` / `autoDiscoveryButton`：从客户端临时连接状态页直接测试 HTTP hello、写入服务器地址配置并触发重新连接，或切回 UDP 自动发现；适用于客户现场 UDP 广播被阻断但服务器地址固定的场景。
 - `playCurrent()`: 遇到 `folder` 时优先使用该项自带的 `entries` 构建内部子播放列表；若无 `entries`，再回退到客户端本地目录扫描。
 - `buildFolderPlaybackState(item)`: 生成当前 folder 的临时子列表状态，并把 `folder.durationMs` 作为该目录内图片的统一播放时长；若 `folderPlayMode=random`，则会对内部条目打乱一次后完整播放一轮。
 - `primeFolderPlaybackState(item)`: 预扫描并缓存 folder 目录内容，减少双舞台切换前的等待，并继承 `folder.durationMs`；同一路径但不同 `folderPlayMode` 会拆分为不同缓存键。

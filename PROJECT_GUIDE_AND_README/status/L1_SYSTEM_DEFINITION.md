@@ -4,7 +4,7 @@
 
 ---
 
-## 📍 当前运行现实 (2026-04-09)
+## 📍 当前运行现实 (2026-04-11)
 
 - 交付标准已经收敛为项目根目录 `windows/` 下仅保留两个最终安装包：
   - `AdvertisingScreenServer-Setup-1.0.0.exe`
@@ -25,12 +25,25 @@
 - 当前稳定回退基线已经固化为：
   - [03_V1_0_0_STABLE_BASELINE](./03_V1_0_0_STABLE_BASELINE.md)
   - [project-backups/backups/v1.0.0-stable](C:/Users/XU%20RONG/Documents/workspace/Advertising%20screen/project-backups/backups/v1.0.0-stable)
+  - [project-backups/backups/v1.0.1-stable](C:/Users/XU%20RONG/Documents/workspace/Advertising%20screen/project-backups/backups/v1.0.1-stable)
+- 当前对实例运行模型的新增确认：
+  - 客户端同机不得并存旧散包、安装版和旧目录副本，否则可能导致 UI 失效、下发后不播放和错误实例被拉起。
+  - 客户端当前稳定链路已加入启动时冲突清理：旧客户端进程、自启动、计划任务、旧运行目录。
+  - 服务端当前稳定链路已加入单实例保护，避免重复服务端实例接管状态。
+- 当前公开仓库交付入口已经建立：
+  - `https://github.com/UIhoshi/screenhub-display-management`
+  - release 标签：`v1.0.1`
+  - release 资产：服务端与客户端两个安装包
+  - 仓库首页 README 已改为中英日三语独立文件互链结构
 
 ## ⚠️ 当前重点风险
 
-- 管理后台“保存并下发”前端链路曾出现“页面无感知，但后端未真正保存”的问题，后续每次打包必须再次回归。
+- **[UDP 广播拦截]**: 许多公司内网禁用了 UDP 广播 (255.255.255.255)，导致客户端无法通过“全自动”方式找到服务端。
+- 管理后台“保存并下发”前端链路曾出现“页面无感知，但后端未真正保存”的问题
+，后续每次打包必须再次回归。
 - 远端共享推送目录与安装版客户端本地运行目录并非天然同一目录，客户端已增加 HTTP 回退逻辑，但仍需持续验证。
 - 远端共享中的旧日志可能长期滞留，排障时必须优先看“当前正在运行实例”的日志，而不是共享目录里的历史遗留日志。
+- 安装包文件名当前仍保留 `1.0.0` 命名线，而公开 release 标签已推进到 `v1.0.1`；后续若继续演进版本号，需要决定是否同步调整安装包命名策略。
 
 ## 🏗️ 端架构定义 (L2 导向)
 

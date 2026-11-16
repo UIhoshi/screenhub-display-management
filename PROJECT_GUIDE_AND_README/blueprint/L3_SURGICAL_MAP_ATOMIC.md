@@ -1,61 +1,51 @@
-# L3_SURGICAL_MAP_ATOMIC (原子级手术地图 - 严禁自由发挥版)
+# L3_SURGICAL_MAP_ATOMIC (重构手术指令)
 
-## 🎨 UI 统一化指令 (UI Mirroring Command)
-
-### 【最高准则】
-**分发配置抽屉（Playlist Items）的 UI 必须像素级复刻“素材库列表模式”的逻辑。** 禁止为抽屉单独编写复杂的嵌套 HTML。
+本文件是 Codex/Claude 的直接执行指南。
 
 ---
 
-## 🔬 Admin UI 函数 (Frontend Atomic)
+## 🛠️ [新增] 网段主动探测逻辑 (Active HTTP Probing)
 
-### 交互稳定性补充 (Interaction Stability)
-- **`applyConfigToTargets()`**: 
-  - 必须引入 `loading` 状态。
-  - 下发时按钮禁用，文字变为 `下发中...`，成功后变为 `下发成功` 并延时复原。
-- **`setEditorState(payload)`**: 
-  - **严禁**在列表为空时强行填充 `catalog[0]`，保持空列表状态。
-- **`renderPlaylistItems(items)`**: 
-  - 为每一项增加唯一的 `data-id` 或 `data-index`，确保点击修改时目标明确。
-  - 增加 `last-added` 动效或高亮样式。
+### 1. `client/src/main.js` -> `scanLocalNetworkForServer()`
+- **目标**: 在 UDP 失效时，通过单播网段扫描寻找服务端。
+- **逻辑细节**:
+  1. 调用 `resolvePreferredLocalIp()` 获取本机 IP（如 `192.168.10.45`）。
+  2. 提取网段前缀（`192.168.10.`）。
+  3. 循环 `1` 到 `254`。
+  4. 使用 `axios` 或 `http.get` 发送 `http://192.168.10.i:3000/api/client/hello`。
+  5. **关键设置**: `timeout: 1000ms`（防止扫描过程过长）。
+  6. **控制并发**: 建议每次同时探测 10 个 IP，避免占用本地连接数。
+  7. **命中处理**: 只要收到正确的 Server 响应（包含服务器信息），立即调用 `applyManualServerConnection(ip)`。
 
-### `renderPlaylistItems(items)`
-- **重构要求**: 彻底废除 Codex 目前的臃肿实现。
-- **UI 结构镜像**: 强制使用与素材库列表模式一致的 `.asset-list-row` 结构。
-- **HTML 模板骨架**:
-  ```html
-  <article class="asset asset-list-row">
-    <div class="playlist-thumb-container">[图标]</div>
-    <div class="asset-list-body">
-      <strong class="asset-title">${fileName}</strong>
-      <div class="meta">类型: ${type} | 路径: ${path}</div>
-    </div>
-    <div class="asset-actions">
-      [时长输入框(仅限图片)]
-      <button onclick="move(-1)">上移</button>
-      <button onclick="move(1)">下移</button>
-      <button class="danger" onclick="remove()">删除</button>
-    </div>
-  </article>
-  ```
-- **核心逻辑**: 
-  1. 文件夹项：显示文件夹图标，不显示时长输入。
-  2. 视频项：显示视频图标，不显示时长输入。
-  3. 图片项：显示图片图标，显示 5s 输入框。
-
-### `renderAssets(listing)`
-- **重构要求**: 补齐“一键加入”按钮。
-- **文件夹按钮**: `<button onclick="addFolderToPlaylist('${dir.path}')">加入下发列表</button>`。
-- **文件按钮**: `<button onclick="addFileToPlaylist('${file.path}')">加入下发列表</button>`。
+### 2. `client/src/main.js` -> 启动链路调整
+- **修改点**: 在 `createDiscoverySocket()` 启动后，设置一个 10 秒定时器。
+- **逻辑**: 如果 10 秒内 `serverEndpoint` 仍为空，且未配置手动 IP，则启动 `scanLocalNetworkForServer()`。
 
 ---
 
-## 🔬 服务端与客户端逻辑
+## 🛠️ 文件夹下发重构 (Folder Integrity)
 
-### `normalizePlaylistDocument(payload)`
-- **重构要求**: 保持原子性。
-- **逻辑**: 如果前端传的是 `type: 'folder'`，后端**严禁**查询数据库或文件系统进行展开，原样存入并原样下发。
+### 3. `server/src/backend/server.js` -> `normalizePlaylistDocument(payload)`
+- **修改内容**:
+  - 遇到目录时，停止递归展开内部文件。
+  - 直接保留项：`{ type: 'folder', path: item.path, durationMs: item.durationMs || 5000, folderPlayMode: item.folderPlayMode || 'sequence' }`。
 
-### `playCurrent()` (Client)
-- **重构要求**: 实现文件夹自治播放。
-- **逻辑**: 遇到 `type: 'folder'`，客户端自动遍历本地目录并开启子循环。
+### 4. `client/src/renderer/index.html` -> `playCurrent()`
+- **修改内容**:
+  - 判断 `if (item.type === 'folder')`。
+  - 递归扫描本地 `media-library/${item.path}`。
+  - 构造渲染层子播放列表并进入文件夹播放状态机。
+
+---
+
+## 🛠️ 性能与工程化
+
+### 5. `server/src/backend/server.js` -> `copyAssetToClient(machineId, fileName)`
+- **修改内容**:
+  - 废弃 `fs.copyFileSync`。
+  - 实现 `fs.createReadStream(src).pipe(fs.createWriteStream(dest))` 并监听 `finish` 和 `error` 事件。
+
+---
+## 🏁 交付验证命令
+- 修改完成后，请运行：`npm run build` (需确认已挂接 sync 脚本)。
+- 检查 `windows/` 目录下的安装包时间戳是否已更新。

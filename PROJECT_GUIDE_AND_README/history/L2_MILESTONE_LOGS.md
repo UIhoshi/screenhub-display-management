@@ -84,3 +84,63 @@
 - **产物时间戳**:
   - `windows/AdvertisingScreenClient-Setup-1.0.0.exe` — `2026-04-10 17:27:35`
   - `windows/AdvertisingScreenServer-Setup-1.0.0.exe` — `2026-04-10 17:27:35`
+
+## 🧷 2026-04-11：V1.0.1 稳定版与仓库公开交付
+- **变更**: 已确认一条高频根因链：同一台 Windows 机器若同时保留多个客户端形态（旧散包、安装版、旧目录副本、残留启动项），会导致 UI 无法点击、保存并下发后不播放、错误实例被拉起。
+- **变更**: 已为客户端主进程加入实例冲突清理逻辑，启动时会清理冲突客户端进程、旧自启动、旧计划任务与旧运行目录，但默认不清空用户配置与业务数据。
+- **变更**: 已为服务端加入单实例保护，第二实例会被阻止，避免多服务端并存导致端口、托盘和管理状态混乱。
+- **变更**: 已固化新的稳定源码备份目录：
+  - `project-backups/backups/v1.0.1-stable`
+- **变更**: 该备份目录内已同步当前稳定源码快照：
+  - `source-snapshot/client-src`
+  - `source-snapshot/client-build`
+  - `source-snapshot/server-src`
+  - `source-snapshot/server-build`
+- **变更**: 已构建并验证当前带清理逻辑的客户端 / 服务端散包，用于同机冲突回归与远端启动链路排查。
+- **变更**: 已创建并发布 GitHub 仓库：
+  - `https://github.com/UIhoshi/screenhub-display-management`
+- **变更**: 已按 `v1.0.1` 创建 release，并上传两个安装包：
+  - `AdvertisingScreenServer-Setup-1.0.0.exe`
+  - `AdvertisingScreenClient-Setup-1.0.0.exe`
+- **变更**: 已重写仓库 README 为首页化结构，并补齐：
+  - 使用说明 / Quick Start
+  - 中英日三语独立 README
+  - 顶部居中标题、居中副标题、居中 badges、居中语言切换入口
+- **决策**: 后续多语 README 默认采用独立文件互链结构，不再把三语全文堆叠在同一个 README 页面中。
+- **决策**: 后续 README 只要被作为仓库首页处理，就应优先采用 Hero 式顶部结构：居中标题、居中副标题、居中 badges、居中多语入口。
+
+## 🧷 2026-04-17：逻辑入口与鉴权收口
+- **变更**: 已把仓库级逻辑入口文档从失效的 `AgentLogic_V6/` 路径统一回收至当前真实目录 `AgentLogic/`，同步更新 `README.md`、`AGENTS.md`、`README_MASTER_CENTER.md` 与 `PROJECT_FACT_MAP.md`。
+- **变更**: 已修复设备解绑后旧 WebSocket 会话仍可继续上报状态的问题。服务端新增 `revokeClientSession(machineId, reason)`，`POST /api/pair/unbind` 会主动切断在线连接；WS 网关也会在设备失去批准后拒绝后续 `HEARTBEAT / DOWNLOAD_STATUS`。
+- **变更**: 已消除 Admin UI 与服务端的 token 默认值分叉。后台首页改为由服务端在返回 `index.html` 时注入当前 `AD_ADMIN_TOKEN`，WS 与 HTTP 统一使用同一来源，不再保留前端写死的独立常量。
+- **变更**: 已收紧源码中的敏感默认值策略。客户端与服务端启动时都要求显式配置 `AD_PAIRING_KEY`，服务端要求显式配置 `AD_ADMIN_TOKEN`；远程启动凭据若未配置，将拒绝执行远程启动而不是落回硬编码账号密码。
+- **变更**: 已将入口/控制文件顶部提醒统一为固定英文模板，并补齐此前缺失的 `ws-gateway.js`、`udp-discovery.js`、`routes/assets.js`、`routes/devices.js`、`routes/playlist.js` 等头部规则。
+- **变更**: 已新增仓库级校验脚本 `scripts/check-logic-entry.js`，用于机械检查 `README.md`、`AGENTS.md` 以及关键入口/控制文件是否仍保留标准逻辑入口链路。
+- **变更**: 已把逻辑入口校验接入 `client/package.json` 与 `server/package.json` 的 `check:logic` 脚本，后续可在任一子工程目录直接执行 `npm run check:logic`。
+- **验证**: 已通过 `node --check` 验证以下入口与服务端文件语法：
+  - `client/src/main.js`
+  - `server/src/backend/server.js`
+  - `server/src/backend/ws-gateway.js`
+  - `server/src/backend/routes/devices.js`
+  - `server/src/backend/routes/system.js`
+- **验证**: 本轮还应执行 `node scripts/check-logic-entry.js`，以及 `client/`、`server/` 目录下的 `npm run check:logic`，确认仓库文档入口与头部规则模板未漂移。
+- **说明**: 当前目录未挂接 `.git` 仓库，无法使用 `git status` 继续做版本差异校验；本轮验证以静态语法检查和路径残留扫描为主。
+- **审查记录**: 已完成一轮“只审查、不改代码”的安全复核，确认当前仍存在 3 个待处理风险，后续必须单独立项收口：
+  - `server/src/backend/server.js` 会在未认证访问首页时把真实 `AD_ADMIN_TOKEN` 注入 `index.html`，导致“能打开后台页”几乎等价于“已拿到后台口令”。
+  - `server/src/backend/routes/system.js` 当前仍允许未认证访问 `/api/client/playlist`，且服务端返回的播放单会带绝对媒体 URL；已知 `machineId` 的同网段主机可直接探测目标设备播放内容。
+  - `server/src/backend/routes/system.js` 当前仍允许未认证访问 `/api/client/hello`，外部调用方可枚举设备批准状态，并在已知 `machineId` 时取回配对码。
+- **边界说明**: 上述 3 项仅完成风险确认与文档留痕，本轮未进入接口改造、鉴权重构、兼容性回归或安装包重打。
+
+## 🧷 2026-11-16：Git 仓库对齐与代码模块化瘦身
+- **仓库整合**: 已将根目录接入 Git（`main...origin/main` 对应 `UIhoshi/screenhub-display-management`），同步 `.gitignore` 与 `README.zh-CN.md` / `README.ja.md`，并屏蔽 `AgentLogic/`、`tmp_repo_publish/`、`project-backups/`、`release-assets/`、`tasks/` 等本地私有目录。
+- **服务端清理**:
+  - 新增 `server/src/backend/utils/auth.js`（基于 SHA-256 + `crypto.timingSafeEqual`），统一 `routes/system.js` 与 `ws-gateway.js` 的管理员令牌校验。
+  - 新增 `server/src/backend/utils/network.js`，抽离局域网 IP 解析并移除 `server/package.json` 中已停止维护的 `ip` 依赖。
+  - 将 `POST /api/installers/upload` 从 `server/src/backend/server.js` 归位到 `server/src/backend/routes/devices.js`，并删除未使用的死方法 `summarizePlaylist()`。
+- **客户端模块化**:
+  - 保留全部原有功能不变，从 `client/src/main.js` 抽离 `client/src/services/auto-launch.js`（自启与远程启动计划任务）与 `client/src/services/updater.js`（安装包校验、更新与回滚，合并重复校验逻辑），`client/src/main.js` 精简约 430 行。
+- **验证**: 18 个 JS 文件通过 `node --check`，`node scripts/check-logic-entry.js` 通过。
+- **IP 直连修复**:
+  - 修复 `client/src/main.js` 手动/固定 IP 模式下服务端未就绪或等待配对审批时不再重试轮询 `/api/client/hello` 的断点（新增 `scheduleManualServerRetry()` 5s 轮询直到连接并获批）。
+  - 将显式配置的服务器探测超时从 `1000ms` 放宽到至少 `3000ms`，并修复 `player:set-manual-server-address` 空地址输入抛异常的问题。
+- **逻辑副本清理**: 移除旧版 `AgentLogic/`（V6）副本、`scripts/check-logic-entry.js` 及源码顶部绑定注释头，同步 GitHub 最新 `AGENTS.md` 与多语 `README`。

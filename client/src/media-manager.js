@@ -5,6 +5,8 @@ function createMediaManager(deps) {
     crypto,
     axios,
     log,
+    logEvent,
+    getCurrentPlaylistSyncId,
     pathToFileURL,
     getLocalMediaLibraryRoot,
     sharedMediaStagingRoot,
@@ -173,6 +175,7 @@ function createMediaManager(deps) {
     let forceFreshDownload = false;
     const scope = options.scope || 'media';
     const fileName = options.fileName || path.basename(targetPath);
+    const syncId = options.syncId || getCurrentPlaylistSyncId?.() || null;
 
     for (let attempt = 1; attempt <= downloadRetryCount; attempt += 1) {
       try {
@@ -212,6 +215,7 @@ function createMediaManager(deps) {
         let lastReportedAt = 0;
 
         reportDownloadStatus(scope, {
+          syncId,
           state: attempt > 1 ? 'retrying' : 'downloading',
           fileName,
           downloadedBytes,
@@ -243,6 +247,7 @@ function createMediaManager(deps) {
             if (now - lastReportedAt >= downloadStatusIntervalMs) {
               const elapsedSeconds = Math.max((now - lastSampleAt) / 1000, 0.1);
               reportDownloadStatus(scope, {
+                syncId,
                 state: 'downloading',
                 fileName,
                 downloadedBytes,
@@ -277,6 +282,7 @@ function createMediaManager(deps) {
         }
 
         reportDownloadStatus(scope, {
+          syncId,
           state: 'completed',
           fileName,
           downloadedBytes: finalSize,
@@ -285,14 +291,33 @@ function createMediaManager(deps) {
           bytesPerSecond: null,
           error: null,
         });
+        logEvent?.('asset_download_completed', {
+          category: 'download',
+          playlistSyncId: syncId,
+          scope,
+          fileName,
+          targetPath,
+          finalSize,
+        });
         return;
       } catch (error) {
         lastError = error;
         reportDownloadStatus(scope, {
+          syncId,
           state: attempt < downloadRetryCount ? 'retrying' : 'failed',
           fileName,
           error: error.message,
         });
+        if (attempt >= downloadRetryCount) {
+          logEvent?.('asset_download_failed', {
+            category: 'download',
+            playlistSyncId: syncId,
+            scope,
+            fileName,
+            targetPath,
+            error: error.message,
+          }, 'warn');
+        }
         if (['RESUME_MISMATCH', 'SIZE_MISMATCH'].includes(error.code)) {
           forceFreshDownload = true;
         }
@@ -354,6 +379,7 @@ function createMediaManager(deps) {
         expectedSize: item.size,
         scope: 'media',
         fileName: item.fileName || path.basename(new URL(item.src).pathname),
+        syncId: getCurrentPlaylistSyncId?.() || null,
       });
     }
 

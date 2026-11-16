@@ -5,9 +5,9 @@
   - 核心逻辑: REGISTER (认证), HEARTBEAT (状态), DOWNLOAD_STATUS (传输进度), LOCAL_ASSET_SNAPSHOT (客户端本地素材快照)。
 - **UDP 发现**: `udp-discovery.js`
   - 逻辑: 自动识别内网 IP 段，向客户端返回正确的 SERVER_ACK。
-- **HTTP 静态握手**: `POST /api/client/hello`
-  - 逻辑: 当客户端已知服务端固定地址、但内网禁用 UDP 广播时，客户端可直接通过 HTTP 上报 `machineId/deviceName/platform`
-  - 服务端会沿用原发现链创建或刷新 `discoveredDevices`，并返回 `approved/pairingCode/serverIp/httpPort/wsPort`
+- **HTTP 静态握手**: `GET /api/client/hello` / `POST /api/client/hello`
+  - 逻辑: 当客户端已知服务端固定地址、但内网禁用 UDP 广播时，客户端可直接通过 HTTP 上报 `machineId/deviceName/platform/clientIp`
+  - 服务端会沿用原发现链创建或刷新 `discoveredDevices`，按客户端来源 IP 选择可回连的 `serverIp`，并返回 `approved/pairingCode/serverIp/httpPort/wsPort`
   - 这样首次静态接入也能拿到配对码，不再卡死在“必须先广播才能建档”
 
 ## 🧱 安装版运行模型

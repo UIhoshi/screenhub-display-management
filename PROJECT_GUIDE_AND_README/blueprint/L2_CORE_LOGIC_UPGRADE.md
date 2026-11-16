@@ -1,47 +1,38 @@
 # L2_CORE_LOGIC_UPGRADE (逻辑与性能模块)
 
-本模块负责修复系统的核心通信与分发缺陷。
+本模块负责修复系统的核心通信与分发缺陷，并提升在复杂网络环境下的生存能力。
 
 ---
 
-## 📈 性能升级任务 (L3 细节)
+## 📈 性能与稳定性升级任务 (L3 细节)
+
 ### 1. 突破内网传输瓶颈
-- **现状**: 目前使用同步 `copyFileSync`，导致大文件分发时 Node.js 主线程阻塞，心跳包延迟，表象为“限速 48KB/s”。
+- **现状**: 目前使用同步 `copyFileSync`，导致大文件分发时 Node.js 主线程阻塞，心跳包延迟。
 - **方案**: 实施流式非阻塞 I/O 改造。
 - **关联函数**: `L3_SURGICAL_MAP_ATOMIC.md` -> [copyAssetToClient]
 
-### 2. 文件夹下发与动态播放逻辑 (Folder Dispatch & Dynamic Playback)
+### 2. 文件夹下发与动态播放逻辑
+- **现状**: 服务端展开文件夹导致 Payload 膨胀，且失去动态性。
+- **方案**: 服务端下发“文件夹原子条目”，客户端自扫描本地目录生成子列表。
+- **关联函数**: `L3_SURGICAL_MAP_ATOMIC.md` -> [playCurrent], [normalizePlaylistDocument]
 
-**纠偏声明**：目前的重构逻辑严重错误！后端不应在 `expandPlaylistItems` 中将文件夹展开为碎文件。
+### 3. 复杂网络下的“全自动”发现补强 (Option A: Active HTTP Probing)
+- **现状**: 依赖 UDP 广播，易被 VLAN 隔离和交换机 ACL 阻断。
+- **方案**: 实施 **“主动 HTTP 网段探测”** 机制。
+- **逻辑**:
+  1. 客户端启动后，若 UDP 发现失败，自动获取本机内网网段（如 `192.168.1.x`）。
+  2. 客户端并发（或受控顺序）对该网段内所有 254 个 IP 的 `:3000/api/client/hello` 接口发送轻量级握手请求。
+  3. 收到有效响应后，立即锁定服务器 IP 并建立长连接。
+- **优势**: 绕过广播域限制，利用单播路由穿透 VLAN 和路由器。
 
-**重构指令：**
-
-#### A. 服务端：保持“容器性” (Protocol Integrity)
-- **禁止**：禁止在下发 `SET_PLAYLIST` 前将文件夹条目扁平化。
-- **要**：将文件夹作为一个完整的播放项下发。
-  - Payload 示例：`{ type: 'folder', path: 'item/桌面背景', durationMs: 5000, strategy: 'sequence' }`。
-- **职责**：服务端只负责同步文件夹内的物理文件到客户端的中转目录，不负责拆解播放逻辑。
-
-#### B. 客户端：实现“目录感知” (Directory Awareness)
-- **定位**：`client/src/renderer/index.html` -> `playCurrent()`。
-- **逻辑分支**：
-  1. 如果 `item.type === 'folder'`，客户端**不应**直接播放。
-  2. 客户端应根据 `item.path` 定位到本地素材库对应的目录。
-  3. 客户端**内部维护一个子播放列表**，递归该目录下所有媒体文件并执行播放。
-- **优势**：
-  - **动态性**：实现真正的“文件夹播放”。只需往该文件夹添加文件，客户端无需重新下发配置即可自动感知并播放。
-  - **性能**：大幅减小 WS 传输的 Payload 体积。
+### 4. 工程化与安全性补强
+- **[版本对齐]**: 统一版本号管理，消除 `v1.0.1` 与 `1.0.0` 命名线冲突。
+- **[构建优化]**: 将 `sync-all-asar.ps1` 逻辑整合进 `npm run build`。
+- **[安全补强]**: 配对阶段引入非对称加密握手。
+- **[稳定性]**: 增加文件夹同步文件锁。
+- **[自动化测试]**: 为核心业务逻辑引入 Jest 单元测试。
 
 ---
 ## 🔗 关联 L3 核心函数修改
-- **[L3_SURGICAL_MAP_ATOMIC.md](./L3_SURGICAL_MAP_ATOMIC.md)**：查看 `playCurrent` 和 `normalizePlaylistDocument` 的最新修改指令。
+- **[L3_SURGICAL_MAP_ATOMIC.md](./L3_SURGICAL_MAP_ATOMIC.md)**
 
-
-### 3. WebSocket 差量推送 (Patching)
-- **方案**: 在 `ws-gateway.js` 增加 `DEVICE_PATCH` 事件，只同步变化的进度数值。
-- **关联函数**: `L3_SURGICAL_MAP_ATOMIC.md` -> [broadcastStatusChange]
-
----
-
-## 🔗 修改入口
-- 立即查看 **[L3_SURGICAL_MAP_ATOMIC.md](./L3_SURGICAL_MAP_ATOMIC.md)** 获取代码级指令。

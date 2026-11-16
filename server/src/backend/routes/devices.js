@@ -1,10 +1,42 @@
+﻿const fs = require('fs');
+const path = require('path');
 const WebSocket = require('ws');
 
 function registerDeviceRoutes(server, options) {
-  const { app } = options;
+  const { app, installersRoot } = options;
 
   app.get('/api/installers', (req, res) => {
     res.json(server.getInstallerCatalog());
+  });
+
+  app.post('/api/installers/upload', server.installerUpload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ success: false, error: 'file is required' });
+        return;
+      }
+
+      const originalExt = path.extname(req.file.originalname).toLowerCase();
+      if (originalExt !== '.msi') {
+        await fs.promises.rm(req.file.path, { force: true });
+        res.status(400).json({ success: false, error: 'Only .msi files are allowed' });
+        return;
+      }
+
+      const fileHash = server.createMd5Hash(req.file.path);
+      const safeFileName = `${fileHash}.msi`;
+      const targetPath = path.join(installersRoot, safeFileName);
+
+      try {
+        await fs.promises.access(targetPath, fs.constants.F_OK);
+      } catch (_error) {
+        await fs.promises.copyFile(req.file.path, targetPath);
+      }
+      await fs.promises.rm(req.file.path, { force: true });
+      res.json({ success: true, installer: server.getInstallerCatalog().find((item) => item.fileName === safeFileName) });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   });
 
   app.get('/api/client-release/latest', (req, res) => {
@@ -32,6 +64,10 @@ function registerDeviceRoutes(server, options) {
     server.approvedDevices.add(machineId);
     server.saveApprovedDevices();
     server.discoveredDevices.set(machineId, { ...device, approved: true, pairingCode: null });
+    server.logEvent('device_pair_approved', {
+      category: 'pairing',
+      machineId,
+    });
     res.json({ success: true });
   });
 
@@ -46,12 +82,16 @@ function registerDeviceRoutes(server, options) {
     server.approvedDevices.delete(machineId);
     server.saveApprovedDevices();
     server.deleteDeviceSettings(machineId);
-    server.clients.delete(machineId);
+    server.revokeClientSession(machineId, 'device-unbound');
     server.discoveredDevices.set(machineId, {
       ...device,
       approved: false,
       connected: false,
       pairingCode: server.generatePairingCode(),
+    });
+    server.logEvent('device_pair_unbound', {
+      category: 'pairing',
+      machineId,
     });
     res.json({ success: true });
   });
@@ -83,6 +123,11 @@ function registerDeviceRoutes(server, options) {
     }
 
     server.sendCommand(ws, command, data || {});
+    server.logEvent('device_command_requested', {
+      category: 'command',
+      machineId,
+      command,
+    });
     res.json({ success: true });
   });
 

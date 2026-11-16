@@ -1,4 +1,4 @@
-const loadLocalEnv = require('./load-env');
+﻿const loadLocalEnv = require('./load-env');
 
 loadLocalEnv();
 
@@ -16,10 +16,19 @@ const {
   dialog,
   ipcMain,
   powerSaveBlocker,
+  shell,
 } = require('electron');
 const axios = require('axios');
 const WebSocket = require('ws');
 const log = require('electron-log');
+
+function getRequiredEnv(name) {
+  const value = String(process.env[name] || '').trim();
+  if (!value || /^REPLACE_/i.test(value) || /^CHANGE_ME/i.test(value)) {
+    throw new Error(`${name} must be configured before starting the client`);
+  }
+  return value;
+}
 
 function writeBootstrapCrash(error) {
   try {
@@ -40,8 +49,12 @@ function writeBootstrapCrash(error) {
 }
 
 let createMediaManager;
+let createAutoLaunchManager;
+let createUpdater;
 try {
   ({ createMediaManager } = require('./media-manager'));
+  ({ createAutoLaunchManager } = require('./services/auto-launch'));
+  ({ createUpdater } = require('./services/updater'));
 } catch (error) {
   writeBootstrapCrash(error);
   throw error;
@@ -51,25 +64,32 @@ const UDP_PORT = Number(process.env.AD_SERVER_UDP_PORT || 8888);
 const DEFAULT_HTTP_PORT = Number(process.env.AD_SERVER_HTTP_PORT || 3000);
 const DEFAULT_WS_PORT = Number(process.env.AD_SERVER_WS_PORT || 3001);
 const DISCOVERY_INTERVAL_MS = 5000;
+const NETWORK_PROBE_DELAY_MS = Number(process.env.AD_NETWORK_PROBE_DELAY_MS || 10000);
+const NETWORK_PROBE_TIMEOUT_MS = Number(process.env.AD_NETWORK_PROBE_TIMEOUT_MS || 1000);
+const NETWORK_PROBE_CONCURRENCY = Number(process.env.AD_NETWORK_PROBE_CONCURRENCY || 10);
 const HEARTBEAT_INTERVAL_MS = 15000;
 const MAX_BACKOFF_MS = 30000;
 const AUTO_START_REG_PATH = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 const AUTO_START_NAME = 'AdvertisingScreenClient';
 const REMOTE_START_TASK_NAME = 'AdvertisingScreenClient';
 const REMOTE_START_WATCHER_TASK_NAME = 'AdvertisingScreenClientRemoteStartWatcher';
-const PAIRING_KEY = process.env.AD_PAIRING_KEY || 'AS_LOCAL_PAIRING_20260310';
+const PAIRING_KEY = getRequiredEnv('AD_PAIRING_KEY');
 const NIGHTLY_REFRESH_HOUR = Number(process.env.AD_NIGHTLY_REFRESH_HOUR || 3);
 const MAX_CACHE_FILE_AGE_MS = Number(process.env.AD_CACHE_MAX_AGE_MS || 14 * 24 * 60 * 60 * 1000);
 const DOWNLOAD_RETRY_COUNT = Number(process.env.AD_DOWNLOAD_RETRY_COUNT || 3);
 const DOWNLOAD_STATUS_INTERVAL_MS = 1000;
 const WS_WATCHDOG_TIMEOUT_MS = Number(process.env.AD_WS_WATCHDOG_TIMEOUT_MS || 30000);
 const WS_WATCHDOG_INTERVAL_MS = Number(process.env.AD_WS_WATCHDOG_INTERVAL_MS || 5000);
+const LOG_MAX_SIZE_BYTES = Number(process.env.AD_LOG_MAX_SIZE_BYTES || 5 * 1024 * 1024);
+const LOG_RETENTION_COUNT = Number(process.env.AD_LOG_RETENTION_COUNT || 10);
 
 let mainWindow = null;
 let udpSocket = null;
 let ws = null;
 let powerBlockerId = null;
 let discoveryTimer = null;
+let networkProbeTimer = null;
+let manualPollTimer = null;
 let heartbeatTimer = null;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
@@ -85,12 +105,24 @@ let pendingStatusReports = [];
 let previousCpuSnapshot = null;
 let playlistApplyToken = 0;
 let activeDownloads = {};
+let currentPlaylistSyncId = null;
+let lastCommandContext = null;
+let clientLogDir = null;
+let diagnosticsSnapshotPath = null;
+let lastDiagnosticsWriteAt = 0;
+let lastStatusSnapshot = {};
+let latestDiagnosticsExportPath = null;
 let diskSnapshotLoadedAt = 0;
 let diskSnapshotInFlight = null;
 let latestDiskSnapshot = {
   diskUsage: null,
   storageDevices: [],
 };
+let networkProbeInFlight = false;
+let manualServerConfig = null;
+let fixedServerConfig = null;
+let connectionMode = 'auto-discovery';
+let lastConnectionProbe = null;
 
 const machineId = os.hostname();
 const cacheRoot = path.join(app.getPath('userData'), 'media-cache');
@@ -245,8 +277,31 @@ function configureLogging() {
   const logDir = resolveWritableLogDir();
   log.transports.file.level = 'info';
   log.transports.file.resolvePathFn = () => path.join(logDir, 'client-main.log');
+  log.transports.file.maxSize = LOG_MAX_SIZE_BYTES;
   log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}';
   log.transports.console.format = '[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}';
+  pruneLogFiles(logDir, 'client-main', LOG_RETENTION_COUNT);
+  clientLogDir = logDir;
+  diagnosticsSnapshotPath = path.join(logDir, 'client-diagnostics.json');
+  process.env.AD_ACTIVE_CLIENT_LOG_DIR = logDir;
+}
+
+function pruneLogFiles(logDir, baseName, keepCount) {
+  try {
+    const entries = fs.readdirSync(logDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.startsWith(baseName))
+      .map((entry) => {
+        const fullPath = path.join(logDir, entry.name);
+        const stats = fs.statSync(fullPath);
+        return { fullPath, mtimeMs: stats.mtimeMs };
+      })
+      .sort((left, right) => right.mtimeMs - left.mtimeMs);
+    for (const stale of entries.slice(Math.max(keepCount, 1))) {
+      fs.rmSync(stale.fullPath, { force: true });
+    }
+  } catch (_error) {
+    // Log pruning is best-effort.
+  }
 }
 
 function logUnhandledError(label, error) {
@@ -270,6 +325,161 @@ function logStructured(label, payload = {}, level = 'info') {
   });
 }
 
+function createTraceId(prefix = 'trace') {
+  return `${prefix}_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}`;
+}
+
+function summarizePlaylistForLog(payload = {}) {
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  return {
+    syncId: payload.syncId || null,
+    mode: payload.mode || 'loop',
+    applyStrategy: payload.applyStrategy || 'immediate',
+    itemCount: items.length,
+    items: items.slice(0, 10).map((item) => ({
+      type: item?.type || null,
+      path: item?.path || item?.fileName || null,
+      originalSrc: item?.originalSrc || item?.src || null,
+      durationMs: typeof item?.durationMs === 'number' ? item.durationMs : null,
+      folderPlayMode: item?.folderPlayMode || null,
+    })),
+  };
+}
+
+function logClientEvent(event, details = {}, level = 'info') {
+  logStructured(event, {
+    service: 'client',
+    event,
+    playlistSyncId: details.playlistSyncId || currentPlaylistSyncId || null,
+    commandId: details.commandId || lastCommandContext?.commandId || null,
+    ...details,
+  }, level);
+}
+
+function buildClientDiagnosticsSnapshot() {
+  return {
+    generatedAt: new Date().toISOString(),
+    machineId,
+    appVersion: app.getVersion(),
+    logDir: clientLogDir,
+    diagnosticsSnapshotPath,
+    currentPlaylistSyncId,
+    serverInfo,
+    pendingPairingCode,
+    lastCommandContext,
+    playback: {
+      mode: currentPlaybackState.mode || null,
+      applyStrategy: currentPlaybackState.applyStrategy || null,
+      itemCount: Array.isArray(currentPlaybackState.items) ? currentPlaybackState.items.length : 0,
+      firstItems: Array.isArray(currentPlaybackState.items)
+        ? currentPlaybackState.items.slice(0, 10).map((item) => ({
+          type: item?.type || null,
+          src: item?.src || null,
+          originalSrc: item?.originalSrc || null,
+          path: item?.path || null,
+          durationMs: typeof item?.durationMs === 'number' ? item.durationMs : null,
+        }))
+        : [],
+    },
+    status: lastStatusSnapshot,
+    activeDownloads,
+    runtime: {
+      localMediaLibraryRoot,
+      sharedMediaStagingRoot,
+      cacheRoot,
+      installerCacheRoot,
+      controlRoot,
+      isPackaged: app.isPackaged,
+    },
+    diskSnapshot: latestDiskSnapshot,
+  };
+}
+
+function writeClientDiagnosticsSnapshot(reason = 'manual', force = false) {
+  if (!diagnosticsSnapshotPath) {
+    return null;
+  }
+  const now = Date.now();
+  if (!force && now - lastDiagnosticsWriteAt < 1000) {
+    return diagnosticsSnapshotPath;
+  }
+  const payload = {
+    reason,
+    ...buildClientDiagnosticsSnapshot(),
+  };
+  try {
+    fs.mkdirSync(path.dirname(diagnosticsSnapshotPath), { recursive: true });
+    fs.writeFileSync(diagnosticsSnapshotPath, JSON.stringify(payload, null, 2));
+    lastDiagnosticsWriteAt = now;
+    return diagnosticsSnapshotPath;
+  } catch (error) {
+    log.warn('Failed to write client diagnostics snapshot', {
+      reason,
+      message: error?.message || String(error),
+    });
+    return null;
+  }
+}
+
+function isPrivateLanIp(address) {
+  const parts = String(address || '').split('.').map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+
+  return (
+    parts[0] === 10 ||
+    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+    (parts[0] === 192 && parts[1] === 168)
+  );
+}
+
+function resolvePreferredLocalIp() {
+  const candidates = Object.values(os.networkInterfaces())
+    .flat()
+    .filter((entry) => entry && entry.family === 'IPv4' && !entry.internal)
+    .map((entry) => entry.address);
+  const privateCandidate = candidates.find((address) => isPrivateLanIp(address));
+  return privateCandidate || candidates[0] || null;
+}
+
+function applyDiscoveredServer(nextServerInfo, source = 'unknown') {
+  if (!nextServerInfo || !nextServerInfo.serverIp) {
+    return false;
+  }
+
+  const approved = Boolean(nextServerInfo.approved);
+  serverInfo = {
+    serverIp: nextServerInfo.serverIp,
+    wsPort: Number(nextServerInfo.wsPort) || DEFAULT_WS_PORT,
+    httpPort: Number(nextServerInfo.httpPort) || DEFAULT_HTTP_PORT,
+    approved,
+  };
+  pendingPairingCode = nextServerInfo.pairingCode || null;
+
+  clearTimeout(networkProbeTimer);
+  sendStatus({
+    discovery: source === 'active-http-probe' ? 'server-found-http' : 'server-found',
+    approved,
+    pairingCode: pendingPairingCode,
+    connectionProbe: lastConnectionProbe,
+  });
+  logClientEvent('server_discovered', {
+    category: 'discovery',
+    source,
+    serverIp: serverInfo.serverIp,
+    httpPort: serverInfo.httpPort,
+    wsPort: serverInfo.wsPort,
+    approved,
+  });
+
+  if (approved && !hasReusableWebSocket(serverInfo)) {
+    connectWebSocket();
+  }
+
+  return true;
+}
+
 function sendWsJson(payload, logLabel = null) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return false;
@@ -285,6 +495,7 @@ function sendWsJson(payload, logLabel = null) {
 function sanitizeDownloadStatus(status = {}) {
   return {
     scope: status.scope || 'media',
+    syncId: status.syncId || null,
     state: status.state || 'idle',
     fileName: status.fileName || null,
     percent: typeof status.percent === 'number' ? status.percent : null,
@@ -312,13 +523,77 @@ function saveClientConfig(config) {
   fs.writeFileSync(clientConfigPath, JSON.stringify(config, null, 2));
 }
 
-function normalizeAutoStartConfig(config = {}) {
-  const autoStartConfig = config && typeof config.autoStartConfig === 'object'
-    ? config.autoStartConfig
-    : {};
+
+function parseManualServerEndpoint(rawInput, source = 'manual') {
+  const raw = String(rawInput || '').trim();
+  if (!raw) {
+    return null;
+  }
+
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
+  let parsed;
+  try {
+    parsed = new URL(withProtocol);
+  } catch (error) {
+    throw new Error(`Invalid server address: ${raw}`);
+  }
+
+  const protocol = String(parsed.protocol || '').toLowerCase();
+  if (!['http:', 'https:', 'ws:', 'wss:'].includes(protocol)) {
+    throw new Error(`Unsupported server address protocol: ${parsed.protocol}`);
+  }
+
+  const host = String(parsed.hostname || '').trim();
+  if (!host) {
+    throw new Error('Server address host is required');
+  }
+
+  const explicitPort = parsed.port ? Number(parsed.port) : null;
+  const httpPort = protocol === 'http:' || protocol === 'https:'
+    ? explicitPort || DEFAULT_HTTP_PORT
+    : Number(process.env.AD_SERVER_HTTP_PORT || DEFAULT_HTTP_PORT);
+  const wsPort = protocol === 'ws:' || protocol === 'wss:'
+    ? explicitPort || DEFAULT_WS_PORT
+    : Number(process.env.AD_SERVER_WS_PORT || DEFAULT_WS_PORT);
+
   return {
-    hasAsked: autoStartConfig.hasAsked === true,
-    enabled: autoStartConfig.enabled === true,
+    source,
+    rawInput: raw,
+    host,
+    httpPort,
+    wsPort,
+    displayAddress: `${host}:${httpPort}`,
+  };
+}
+
+function normalizeManualServerConfig(config = {}) {
+  const raw = String(config.manualServerAddress || '').trim();
+  if (!raw) {
+    return null;
+  }
+  return parseManualServerEndpoint(raw, 'manual-config');
+}
+
+function resolveFixedServerConfigFromEnv() {
+  const raw = String(process.env.AD_SERVER_FIXED_IP || process.env.AD_SERVER_HOST || '').trim();
+  if (!raw) {
+    return null;
+  }
+  return parseManualServerEndpoint(raw, process.env.AD_SERVER_FIXED_IP ? 'env-fixed-ip' : 'env-host');
+}
+
+function resolveConfiguredServerEndpoint() {
+  return fixedServerConfig || manualServerConfig || null;
+}
+
+function getConnectionStatusFields() {
+  const configuredEndpoint = resolveConfiguredServerEndpoint();
+  return {
+    connectionMode,
+    configuredServerAddress: configuredEndpoint?.displayAddress || null,
+    configuredServerSource: configuredEndpoint?.source || null,
+    localIp: resolvePreferredLocalIp(),
+    connectionProbe: lastConnectionProbe,
   };
 }
 
@@ -333,6 +608,29 @@ function updateClientAutoStartConfig(enabled) {
   return config.autoStartConfig;
 }
 
+const {
+  normalizeAutoStartConfig,
+  setupAutoLaunch,
+  cleanupAutoLaunchArtifacts,
+  resolveAutoStartConsent,
+} = createAutoLaunchManager({
+  fs,
+  path,
+  execFile,
+  app,
+  log,
+  controlRoot,
+  remoteStartTriggerPath,
+  remoteStartWatcherScriptPath,
+  autoStartRegPath: AUTO_START_REG_PATH,
+  autoStartName: AUTO_START_NAME,
+  remoteStartTaskName: REMOTE_START_TASK_NAME,
+  remoteStartWatcherTaskName: REMOTE_START_WATCHER_TASK_NAME,
+  loadClientConfig,
+  updateClientAutoStartConfig,
+  baseDir: __dirname,
+});
+
 function resolveMediaLibraryPath(candidatePath) {
   const raw = String(candidatePath || '').trim();
   if (!raw) {
@@ -343,6 +641,9 @@ function resolveMediaLibraryPath(candidatePath) {
 
 function applyClientConfig(config = {}) {
   localMediaLibraryRoot = resolveMediaLibraryPath(config.mediaLibraryPath);
+  fixedServerConfig = resolveFixedServerConfigFromEnv();
+  manualServerConfig = normalizeManualServerConfig(config);
+  connectionMode = fixedServerConfig ? 'fixed-env' : (manualServerConfig ? 'manual' : 'auto-discovery');
 }
 
 function persistMediaLibraryPath(nextPath) {
@@ -438,12 +739,24 @@ function reportDownloadStatus(scope, patch = {}) {
     ...(activeDownloads[scope] || {}),
     ...patch,
     scope,
+    syncId: patch.syncId || currentPlaylistSyncId || null,
   });
   activeDownloads = {
     ...activeDownloads,
     [scope]: nextStatus,
   };
   sendStatus({ downloadStatus: activeDownloads });
+  if (['retrying', 'failed', 'completed'].includes(String(nextStatus.state || '').toLowerCase())) {
+    logClientEvent('download_status_changed', {
+      category: 'download',
+      scope,
+      state: nextStatus.state,
+      fileName: nextStatus.fileName,
+      percent: nextStatus.percent,
+      error: nextStatus.error,
+      playlistSyncId: nextStatus.syncId || null,
+    }, nextStatus.state === 'failed' ? 'warn' : 'info');
+  }
   sendWsJson({
     type: 'DOWNLOAD_STATUS',
     status: nextStatus,
@@ -496,9 +809,23 @@ function sendStatus(status) {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return;
   }
-  mainWindow.webContents.send('player:status', {
+  const connectionStatus = getConnectionStatusFields();
+  lastStatusSnapshot = {
+    ...lastStatusSnapshot,
+    ...connectionStatus,
     ...status,
     serverIp: serverInfo ? serverInfo.serverIp : null,
+    httpPort: serverInfo ? serverInfo.httpPort : null,
+    wsPort: serverInfo ? serverInfo.wsPort : null,
+    updatedAt: new Date().toISOString(),
+  };
+  writeClientDiagnosticsSnapshot('status-update');
+  mainWindow.webContents.send('player:status', {
+    ...connectionStatus,
+    ...status,
+    serverIp: serverInfo ? serverInfo.serverIp : null,
+    httpPort: serverInfo ? serverInfo.httpPort : null,
+    wsPort: serverInfo ? serverInfo.wsPort : null,
   });
 }
 
@@ -581,6 +908,9 @@ async function reportHeartbeatStatus() {
       downloadStatus: activeDownloads,
       clientVersion: app.getVersion(),
       mediaLibraryPath: localMediaLibraryRoot,
+      localIp: resolvePreferredLocalIp(),
+      connectionMode,
+      configuredServerAddress: resolveConfiguredServerEndpoint()?.displayAddress || null,
       storageDevices: diskInfo.storageDevices,
     },
   });
@@ -625,176 +955,6 @@ function restorePlaybackSnapshot() {
   }
 }
 
-function getClientLaunchSpec() {
-  if (app.isPackaged) {
-    return {
-      filePath: process.execPath,
-      args: [],
-      workdir: path.dirname(process.execPath),
-    };
-  }
-
-  return {
-    filePath: 'cmd.exe',
-    args: ['/c', 'npm.cmd', 'start'],
-    workdir: path.join(__dirname, '..'),
-  };
-}
-
-function ensureRemoteStartWatcherScript() {
-  fs.mkdirSync(controlRoot, { recursive: true });
-  const script = [
-    "param(",
-    "  [string]$TriggerPath,",
-    "  [string]$LauncherPath,",
-    "  [string]$LauncherArgsJson,",
-    "  [string]$WorkingDirectory",
-    ")",
-    "if (-not (Test-Path -LiteralPath $TriggerPath)) { exit 0 }",
-    "try {",
-    "  Remove-Item -LiteralPath $TriggerPath -Force -ErrorAction SilentlyContinue",
-    "  $launcherArgs = @()",
-    "  if ($LauncherArgsJson) {",
-    "    $launcherArgs = @(ConvertFrom-Json -InputObject $LauncherArgsJson)",
-    "  }",
-    "  Start-Process -FilePath $LauncherPath -ArgumentList $launcherArgs -WorkingDirectory $WorkingDirectory -WindowStyle Hidden | Out-Null",
-    "} catch {",
-    "  $logPath = Join-Path (Split-Path -Parent $TriggerPath) 'remote-start-watcher-error.log'",
-    "  \"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $($_.Exception.Message)\" | Out-File -FilePath $logPath -Append -Encoding UTF8",
-    "}",
-  ].join('\r\n');
-  fs.writeFileSync(remoteStartWatcherScriptPath, script, 'utf8');
-}
-
-function execFileAsync(command, args) {
-  return new Promise((resolve, reject) => {
-    execFile(command, args, (error, stdout, stderr) => {
-      if (error) {
-        reject({
-          error,
-          stdout,
-          stderr,
-        });
-        return;
-      }
-      resolve({ stdout, stderr });
-    });
-  });
-}
-
-async function setupAutoLaunch() {
-  const exePath = process.execPath.replace(/"/g, '\\"');
-  try {
-    await execFileAsync('reg', ['add', AUTO_START_REG_PATH, '/v', AUTO_START_NAME, '/t', 'REG_SZ', '/d', `"${exePath}"`, '/f']);
-    log.info('Auto start registry entry ensured');
-  } catch (result) {
-    log.warn('Failed to register auto start', result.error);
-  }
-
-  const taskCommand = `"${process.execPath}"`;
-  try {
-    await execFileAsync('schtasks.exe', [
-      '/Create',
-      '/TN', REMOTE_START_TASK_NAME,
-      '/TR', taskCommand,
-      '/SC', 'ONCE',
-      '/ST', '00:00',
-      '/F',
-    ]);
-    log.info('Remote start scheduled task ensured', {
-      taskName: REMOTE_START_TASK_NAME,
-    });
-  } catch (result) {
-    log.warn('Failed to ensure remote start scheduled task', {
-      message: result.error.message,
-      stdout: result.stdout,
-      stderr: result.stderr,
-    });
-  }
-
-  ensureRemoteStartWatcherScript();
-  const launchSpec = getClientLaunchSpec();
-  const taskArgs = [
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-WindowStyle', 'Hidden',
-    '-File', remoteStartWatcherScriptPath,
-    '-TriggerPath', remoteStartTriggerPath,
-    '-LauncherPath', launchSpec.filePath,
-    '-LauncherArgsJson', JSON.stringify(launchSpec.args || []),
-    '-WorkingDirectory', launchSpec.workdir,
-  ];
-  try {
-    await execFileAsync('schtasks.exe', [
-      '/Create',
-      '/TN', REMOTE_START_WATCHER_TASK_NAME,
-      '/TR', `powershell.exe ${taskArgs.map((arg) => `"${String(arg).replace(/"/g, '""')}"`).join(' ')}`,
-      '/SC', 'MINUTE',
-      '/MO', '1',
-      '/F',
-    ]);
-    log.info('Remote start watcher task ensured', {
-      taskName: REMOTE_START_WATCHER_TASK_NAME,
-      triggerPath: remoteStartTriggerPath,
-    });
-  } catch (result) {
-    log.warn('Failed to ensure remote start watcher task', {
-      message: result.error.message,
-      stdout: result.stdout,
-      stderr: result.stderr,
-    });
-  }
-}
-
-async function cleanupAutoLaunchArtifacts() {
-  const cleanupSteps = [
-    {
-      label: 'client auto start registry entry',
-      command: 'reg',
-      args: ['delete', AUTO_START_REG_PATH, '/v', AUTO_START_NAME, '/f'],
-    },
-    {
-      label: 'client remote start scheduled task',
-      command: 'schtasks.exe',
-      args: ['/Delete', '/TN', REMOTE_START_TASK_NAME, '/F'],
-    },
-    {
-      label: 'client remote start watcher task',
-      command: 'schtasks.exe',
-      args: ['/Delete', '/TN', REMOTE_START_WATCHER_TASK_NAME, '/F'],
-    },
-  ];
-
-  for (const step of cleanupSteps) {
-    try {
-      await execFileAsync(step.command, step.args);
-      log.info(`Removed ${step.label}`);
-    } catch (result) {
-      log.info(`Skipped removing ${step.label}`, {
-        message: result.error.message,
-      });
-    }
-  }
-
-  try {
-    fs.rmSync(remoteStartTriggerPath, { force: true });
-  } catch (error) {
-    log.info('Failed to remove remote start trigger file', {
-      message: error.message,
-    });
-  }
-}
-
-function resolveAutoStartConsent() {
-  const config = loadClientConfig();
-  const autoStartConfig = normalizeAutoStartConfig(config);
-  if (!autoStartConfig.hasAsked) {
-    updateClientAutoStartConfig(false);
-    return false;
-  }
-  return autoStartConfig.enabled;
-}
-
 function checkEnvironment(softwareName) {
   const safeName = String(softwareName || '').replace(/'/g, "''");
   const script = `Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | Where-Object { $_.DisplayName -like '*${safeName}*' } | Select-Object -ExpandProperty DisplayName`;
@@ -829,6 +989,8 @@ const mediaManager = createMediaManager({
   crypto,
   axios,
   log,
+  logEvent: logClientEvent,
+  getCurrentPlaylistSyncId: () => currentPlaylistSyncId,
   pathToFileURL,
   getLocalMediaLibraryRoot: () => localMediaLibraryRoot,
   sharedMediaStagingRoot,
@@ -854,6 +1016,11 @@ function reportInstallStatus(status, message) {
     status,
     message,
   };
+  logClientEvent('install_status_reported', {
+    category: 'install',
+    status,
+    message,
+  }, ['failed', 'update-failed'].includes(String(status || '').toLowerCase()) ? 'warn' : 'info');
   if (ws && ws.readyState === WebSocket.OPEN) {
     sendWsJson(payload, 'Install status sent');
     return;
@@ -879,19 +1046,6 @@ async function sendEnvironmentReport(softwareName) {
     type: 'ENV_REPORT',
     report,
   }, 'Environment report sent');
-}
-
-function compareVersions(left, right) {
-  const leftParts = String(left || '0').split('.').map((part) => Number.parseInt(part, 10) || 0);
-  const rightParts = String(right || '0').split('.').map((part) => Number.parseInt(part, 10) || 0);
-  const length = Math.max(leftParts.length, rightParts.length);
-  for (let index = 0; index < length; index += 1) {
-    const delta = (leftParts[index] || 0) - (rightParts[index] || 0);
-    if (delta !== 0) {
-      return delta;
-    }
-  }
-  return 0;
 }
 
 function flushPendingStatusReports() {
@@ -922,280 +1076,35 @@ function hasReusableWebSocket(target = serverInfo) {
   );
 }
 
-function loadInstalledReleaseManifest() {
-  if (!fs.existsSync(installedReleaseManifestPath)) {
-    return null;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(installedReleaseManifestPath, 'utf8'));
-  } catch (error) {
-    log.warn('Failed to read installed release manifest', error);
-    return null;
-  }
-}
-
-function saveInstalledReleaseManifest(payload) {
-  fs.mkdirSync(path.dirname(installedReleaseManifestPath), { recursive: true });
-  fs.writeFileSync(installedReleaseManifestPath, JSON.stringify(payload, null, 2));
-}
-
-function archiveReleasePackage(sourcePath, release) {
-  if (!sourcePath || !fs.existsSync(sourcePath) || !release || !release.fileName) {
-    return null;
-  }
-  fs.mkdirSync(releaseArchiveRoot, { recursive: true });
-  const archiveName = `${release.version || 'unknown'}__${release.fileName}`;
-  const archivePath = path.join(releaseArchiveRoot, archiveName);
-  if (!fs.existsSync(archivePath)) {
-    fs.copyFileSync(sourcePath, archivePath);
-  }
-  return archivePath;
-}
-
-function launchDetachedInstaller(kind, targetPath, silentArgs) {
-  if (kind === 'msi') {
-    const child = spawn(
-      'msiexec',
-      ['/i', targetPath, ...(silentArgs || ['/quiet', '/qn', '/norestart'])],
-      {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-      }
-    );
-    child.unref();
-    return;
-  }
-
-  const child = spawn(targetPath, silentArgs || ['/S'], {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  });
-  child.unref();
-}
-
-function writePendingUpdateMarker(release, fromVersion, rollbackRelease) {
-  fs.writeFileSync(
-    pendingUpdateMarkerPath,
-    JSON.stringify(
-      {
-        fileName: release.fileName,
-        targetVersion: release.version || null,
-        fromVersion,
-        cachedPackagePath: path.join(installerCacheRoot, release.fileName),
-        kind: release.kind || null,
-        silentArgs: release.silentArgs || null,
-        rollbackRelease: rollbackRelease || null,
-        startedAt: new Date().toISOString(),
-      },
-      null,
-      2
-    )
-  );
-}
-
-function recoverPendingUpdateMarker() {
-  if (!fs.existsSync(pendingUpdateMarkerPath)) {
-    return;
-  }
-
-  let keepMarker = false;
-  try {
-    const marker = JSON.parse(fs.readFileSync(pendingUpdateMarkerPath, 'utf8'));
-    const currentVersion = app.getVersion();
-    const targetVersion = marker.targetVersion || null;
-    const fromVersion = marker.fromVersion || 'unknown';
-
-    if (marker.rollbackAttempted) {
-      if (compareVersions(currentVersion, marker.rollbackTargetVersion || fromVersion) === 0) {
-        reportInstallStatus('rollback-confirmed', `${marker.fileName} rolled back to ${currentVersion}`);
-      } else {
-        reportInstallStatus(
-          'rollback-failed',
-          `${marker.fileName} rollback did not complete. Current version ${currentVersion}, expected ${marker.rollbackTargetVersion || fromVersion}`
-        );
-      }
-      return;
-    }
-
-    if (targetVersion && compareVersions(currentVersion, targetVersion) >= 0) {
-      const archivedPath = archiveReleasePackage(marker.cachedPackagePath, {
-        fileName: marker.fileName,
-        version: targetVersion,
-      });
-      saveInstalledReleaseManifest({
-        version: currentVersion,
-        fileName: marker.fileName,
-        kind: marker.kind || path.extname(marker.fileName).slice(1).toLowerCase(),
-        silentArgs: marker.silentArgs || null,
-        packagePath: archivedPath,
-        updatedAt: new Date().toISOString(),
-      });
-      reportInstallStatus('update-confirmed', `${marker.fileName} applied, current version ${currentVersion}`);
-      return;
-    }
-
-    if (compareVersions(currentVersion, fromVersion) === 0) {
-      reportInstallStatus(
-        'update-failed',
-        `${marker.fileName} did not complete. Current version ${currentVersion}, expected ${targetVersion || 'unknown'}, previous ${fromVersion}`
-      );
-      return;
-    }
-
-    const rollbackRelease = marker.rollbackRelease;
-    if (
-      rollbackRelease &&
-      rollbackRelease.packagePath &&
-      fs.existsSync(rollbackRelease.packagePath)
-    ) {
-      fs.writeFileSync(
-        pendingUpdateMarkerPath,
-        JSON.stringify(
-          {
-            ...marker,
-            rollbackAttempted: true,
-            rollbackTargetVersion: rollbackRelease.version || fromVersion,
-            rollbackStartedAt: new Date().toISOString(),
-          },
-          null,
-          2
-        )
-      );
-      keepMarker = true;
-      reportInstallStatus('rollback-started', `${rollbackRelease.fileName} -> ${rollbackRelease.version || fromVersion}`);
-      launchDetachedInstaller(rollbackRelease.kind, rollbackRelease.packagePath, rollbackRelease.silentArgs);
-      setTimeout(() => {
-        app.quit();
-      }, 1500);
-      return;
-    }
-
-    reportInstallStatus(
-      'update-failed',
-      `${marker.fileName} failed and no rollback package is available. Current version ${currentVersion}`
-    );
-  } catch (error) {
-    log.warn('Failed to recover pending update marker', error);
-  } finally {
-    if (!keepMarker && fs.existsSync(pendingUpdateMarkerPath)) {
-      fs.rmSync(pendingUpdateMarkerPath, { force: true });
-    }
-  }
-}
-
-
-async function installPackage(installer) {
-  if (!installer || !installer.src || path.extname(installer.fileName || '').toLowerCase() !== '.msi') {
-    throw new Error('Invalid MSI installer payload');
-  }
-
-  if (!isAllowedDownloadUrl(installer.src)) {
-    throw new Error(`Blocked non-whitelisted installer url: ${installer.src}`);
-  }
-
-  const softwareName = installer.productName || path.basename(installer.fileName, '.msi');
-  const beforeCheck = await checkEnvironmentDetailed(softwareName);
-  if (beforeCheck.installed) {
-    reportInstallStatus('skipped', `${softwareName} already installed`);
-    await sendEnvironmentReport(softwareName);
-    return;
-  }
-
-  const targetPath = path.join(installerCacheRoot, installer.fileName);
-  enforceCacheQuota();
-  reportInstallStatus('downloading', installer.fileName);
-  await downloadToPath(installer.src, targetPath, {
-    expectedSize: installer.size,
-    scope: 'installer',
-    fileName: installer.fileName,
-  });
-
-  if (installer.sha256 && await sha256File(targetPath) !== installer.sha256) {
-    fs.rmSync(targetPath, { force: true });
-    throw new Error(`Installer sha256 mismatch: ${installer.fileName}`);
-  }
-
-  if (installer.md5 && await md5File(targetPath) !== installer.md5) {
-    fs.rmSync(targetPath, { force: true });
-    throw new Error(`Installer md5 mismatch: ${installer.fileName}`);
-  }
-
-  reportInstallStatus('installing', installer.fileName);
-  await new Promise((resolve, reject) => {
-    execFile('msiexec', ['/i', targetPath, '/quiet', '/qn', '/norestart'], (error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
-
-  const afterCheck = await checkEnvironmentDetailed(softwareName);
-  if (!afterCheck.installed) {
-    throw new Error(`Installer finished but ${softwareName} was not detected afterwards`);
-  }
-
-  reportInstallStatus('installed', `${installer.fileName} verified`);
-  await sendEnvironmentReport(softwareName);
-}
-
-async function applyClientUpdate(release) {
-  if (!release || !release.src || !release.fileName) {
-    throw new Error('Invalid client release payload');
-  }
-  if (!isAllowedDownloadUrl(release.src)) {
-    throw new Error(`Blocked non-whitelisted release url: ${release.src}`);
-  }
-
-  const currentVersion = app.getVersion();
-  if (release.version && compareVersions(release.version, currentVersion) <= 0) {
-    reportInstallStatus('skipped', `Client ${currentVersion} is already up to date`);
-    return;
-  }
-
-  const targetPath = path.join(installerCacheRoot, release.fileName);
-  enforceCacheQuota();
-  reportInstallStatus('updating', release.fileName);
-  await downloadToPath(release.src, targetPath, {
-    expectedSize: release.size,
-    scope: 'release',
-    fileName: release.fileName,
-  });
-
-  if (release.sha256 && await sha256File(targetPath) !== release.sha256) {
-    fs.rmSync(targetPath, { force: true });
-    throw new Error(`Release sha256 mismatch: ${release.fileName}`);
-  }
-
-  if (release.md5 && await md5File(targetPath) !== release.md5) {
-    fs.rmSync(targetPath, { force: true });
-    throw new Error(`Release md5 mismatch: ${release.fileName}`);
-  }
-
-  const installedRelease = loadInstalledReleaseManifest();
-  const rollbackRelease = installedRelease && installedRelease.packagePath && fs.existsSync(installedRelease.packagePath)
-    ? installedRelease
-    : null;
-  writePendingUpdateMarker(release, currentVersion, rollbackRelease);
-
-  try {
-    launchDetachedInstaller(release.kind, targetPath, release.silentArgs);
-  } catch (error) {
-    fs.rmSync(pendingUpdateMarkerPath, { force: true });
-    throw error;
-  }
-
-  reportInstallStatus('updated', `${release.fileName} launched from ${currentVersion} to ${release.version || 'unknown'}`);
-  setTimeout(() => {
-    app.quit();
-  }, 1500);
-}
+const {
+  recoverPendingUpdateMarker,
+  installPackage,
+  applyClientUpdate,
+} = createUpdater({
+  fs,
+  path,
+  execFile,
+  spawn,
+  app,
+  log,
+  installerCacheRoot,
+  pendingUpdateMarkerPath,
+  releaseArchiveRoot,
+  installedReleaseManifestPath,
+  isAllowedDownloadUrl,
+  enforceCacheQuota,
+  downloadToPath,
+  sha256File,
+  md5File,
+  reportInstallStatus,
+  checkEnvironmentDetailed,
+  sendEnvironmentReport,
+});
 
 async function applyPlaylist(payload) {
   const applyToken = ++playlistApplyToken;
+  const syncId = payload?.syncId || createTraceId('playlist');
+  currentPlaylistSyncId = syncId;
   const mode = payload.mode || 'loop';
   const items = Array.isArray(payload.items)
     ? payload.items
@@ -1211,14 +1120,19 @@ async function applyPlaylist(payload) {
       return;
     }
 
-    log.info('Applying playlist payload', {
-      mode,
-      itemCount: resolved.length,
-      applyStrategy: payload.applyStrategy || 'immediate',
+    logClientEvent('playlist_apply_completed', {
+      category: 'playlist',
+      ...summarizePlaylistForLog({
+        syncId,
+        mode,
+        items: resolved,
+        applyStrategy: payload.applyStrategy || 'immediate',
+      }),
       incremental: false,
     });
 
     currentPlaybackState = {
+      syncId,
       mode,
       applyStrategy: payload.applyStrategy || 'immediate',
       items: [...resolved],
@@ -1227,6 +1141,16 @@ async function applyPlaylist(payload) {
     sendPlaylist();
     sendStatus({ playlist: `ready:${resolved.length}`, mode });
   };
+
+  logClientEvent('playlist_apply_started', {
+    category: 'playlist',
+    ...summarizePlaylistForLog({
+      syncId,
+      mode,
+      items,
+      applyStrategy: payload.applyStrategy || 'immediate',
+    }),
+  });
 
   for (const item of items) {
     try {
@@ -1246,6 +1170,7 @@ async function applyPlaylist(payload) {
             log.warn('Failed to cache folder entry', {
               folderPath: item.path,
               fileName: entry?.fileName || entry?.path || null,
+              syncId,
               message: error?.message || String(error),
             });
           }
@@ -1267,7 +1192,13 @@ async function applyPlaylist(payload) {
         resolved.push(cached);
       }
     } catch (error) {
-      log.warn('Failed to cache media item', error);
+      logClientEvent('playlist_item_cache_failed', {
+        category: 'playlist',
+        syncId,
+        itemType: item?.type || null,
+        itemPath: item?.path || item?.fileName || item?.src || null,
+        error: error?.message || String(error),
+      }, 'warn');
     }
   }
 
@@ -1276,10 +1207,11 @@ async function applyPlaylist(payload) {
   }
 
   if (resolved.length === 0) {
-    log.warn('No playable media resolved from playlist payload', {
+    logClientEvent('playlist_apply_empty', {
+      category: 'playlist',
       itemCount: items.length,
-      machineId,
-    });
+      syncId,
+    }, 'warn');
     sendStatus({ playlist: 'empty-or-invalid' });
     return;
   }
@@ -1302,7 +1234,251 @@ async function fetchCurrentPlaylist() {
   await applyPlaylist(response.data);
 }
 
+async function probeServerHello(candidate, timeoutMs = NETWORK_PROBE_TIMEOUT_MS) {
+  const endpoint = typeof candidate === 'string'
+    ? { host: candidate, httpPort: DEFAULT_HTTP_PORT, wsPort: DEFAULT_WS_PORT, source: 'active-http-probe', displayAddress: `${candidate}:${DEFAULT_HTTP_PORT}` }
+    : candidate;
+  if (!endpoint || !endpoint.host) {
+    return null;
+  }
+
+  const startedAt = Date.now();
+  try {
+    const response = await axios.get(`http://${endpoint.host}:${endpoint.httpPort || DEFAULT_HTTP_PORT}/api/client/hello`, {
+      params: {
+        machineId,
+        deviceName: os.hostname(),
+        platform: `${os.platform()} ${os.release()}`,
+        clientIp: resolvePreferredLocalIp(),
+      },
+      timeout: timeoutMs,
+    });
+    const payload = response.data || {};
+    if (payload.type !== 'SERVER_HELLO') {
+      return null;
+    }
+    return {
+      serverIp: endpoint.host,
+      reportedServerIp: payload.serverIp || null,
+      httpPort: Number(payload.httpPort) || endpoint.httpPort || DEFAULT_HTTP_PORT,
+      wsPort: Number(payload.wsPort) || endpoint.wsPort || DEFAULT_WS_PORT,
+      approved: Boolean(payload.approved),
+      pairingCode: payload.pairingCode || null,
+      latencyMs: Date.now() - startedAt,
+      source: endpoint.source || 'http-hello',
+      displayAddress: endpoint.displayAddress || `${endpoint.host}:${endpoint.httpPort || DEFAULT_HTTP_PORT}`,
+      serverTime: payload.serverTime || null,
+    };
+  } catch (error) {
+    lastConnectionProbe = {
+      ok: false,
+      source: endpoint.source || 'http-hello',
+      target: endpoint.displayAddress || `${endpoint.host}:${endpoint.httpPort || DEFAULT_HTTP_PORT}`,
+      latencyMs: Date.now() - startedAt,
+      error: error?.code || error?.message || String(error),
+      checkedAt: new Date().toISOString(),
+    };
+    return null;
+  }
+}
+
+async function testConfiguredServerConnection(endpoint = resolveConfiguredServerEndpoint()) {
+  if (!endpoint) {
+    return { ok: false, error: 'No server address configured' };
+  }
+  const result = await probeServerHello(endpoint, Math.max(NETWORK_PROBE_TIMEOUT_MS, 3000));
+  if (!result) {
+    sendStatus({ connectionProbe: lastConnectionProbe, discovery: 'server-test-failed' });
+    return { ok: false, probe: lastConnectionProbe };
+  }
+  lastConnectionProbe = {
+    ok: true,
+    source: result.source,
+    target: result.displayAddress,
+    latencyMs: result.latencyMs,
+    approved: result.approved,
+    pairingCode: result.pairingCode || null,
+    serverIp: result.serverIp,
+    reportedServerIp: result.reportedServerIp,
+    checkedAt: new Date().toISOString(),
+  };
+  sendStatus({ connectionProbe: lastConnectionProbe, discovery: 'server-test-ok' });
+  return { ok: true, probe: lastConnectionProbe, server: result };
+}
+
+function stopDiscoverySocket() {
+  clearInterval(discoveryTimer);
+  discoveryTimer = null;
+  clearTimeout(networkProbeTimer);
+  if (udpSocket) {
+    try {
+      udpSocket.close();
+    } catch (error) {
+      log.warn('Failed to close UDP discovery socket', error);
+    }
+    udpSocket = null;
+  }
+}
+
+function scheduleManualServerRetry(reason = 'configured-server-retry', delayMs = DISCOVERY_INTERVAL_MS) {
+  clearTimeout(manualPollTimer);
+  if (isQuitting || !resolveConfiguredServerEndpoint()) {
+    return;
+  }
+  manualPollTimer = setTimeout(() => {
+    manualPollTimer = null;
+    if (!isQuitting && resolveConfiguredServerEndpoint()) {
+      applyManualServerConnection(false, reason).catch((error) => {
+        log.warn('Configured server retry failed', error);
+      });
+    }
+  }, delayMs);
+}
+
+async function applyManualServerConnection(forceReconnect = false, reason = 'configured-server') {
+  const endpoint = resolveConfiguredServerEndpoint();
+  if (!endpoint) {
+    return false;
+  }
+
+  clearTimeout(manualPollTimer);
+  manualPollTimer = null;
+  connectionMode = fixedServerConfig ? 'fixed-env' : 'manual';
+  stopDiscoverySocket();
+  if (forceReconnect && ws) {
+    terminateWebSocketClient(ws, 'manual-server-change');
+    ws = null;
+  }
+  clearTimeout(reconnectTimer);
+  sendStatus({ discovery: 'testing-configured-server', ws: forceReconnect ? 'reconnecting' : undefined });
+
+  const probe = await testConfiguredServerConnection(endpoint);
+  if (!probe.ok || !probe.server) {
+    logClientEvent('configured_server_probe_failed', {
+      category: 'discovery',
+      reason,
+      endpoint: endpoint.displayAddress,
+      probe: probe.probe || null,
+    }, 'warn');
+    scheduleManualServerRetry('configured-server-unreachable');
+    return false;
+  }
+
+  applyDiscoveredServer(probe.server, endpoint.source || reason);
+  if (!probe.server.approved) {
+    scheduleManualServerRetry('configured-server-awaiting-approval');
+  }
+  return true;
+}
+
+function restartAutomaticDiscovery() {
+  clearTimeout(manualPollTimer);
+  manualPollTimer = null;
+  fixedServerConfig = resolveFixedServerConfigFromEnv();
+  if (fixedServerConfig) {
+    connectionMode = 'fixed-env';
+    return applyManualServerConnection(true, 'fixed-env-restored');
+  }
+  manualServerConfig = null;
+  connectionMode = 'auto-discovery';
+  lastConnectionProbe = null;
+  serverInfo = null;
+  pendingPairingCode = null;
+  if (ws) {
+    terminateWebSocketClient(ws, 'auto-discovery-reset');
+    ws = null;
+  }
+  createDiscoverySocket();
+  sendStatus({ discovery: 'searching', ws: 'idle', pairingCode: null, approved: false });
+  return true;
+}
+
+async function scanLocalNetworkForServer() {
+  if (networkProbeInFlight || serverInfo || isQuitting) {
+    return;
+  }
+
+  const localIp = resolvePreferredLocalIp();
+  if (!localIp) {
+    log.warn('Skipped local network probing because no local IPv4 address is available');
+    return;
+  }
+
+  const octets = localIp.split('.');
+  if (octets.length !== 4) {
+    log.warn('Skipped local network probing because local IPv4 address is invalid', { localIp });
+    return;
+  }
+
+  networkProbeInFlight = true;
+  const prefix = `${octets[0]}.${octets[1]}.${octets[2]}.`;
+  const selfHost = Number(octets[3]);
+  const candidates = [];
+  for (let host = 1; host <= 254; host += 1) {
+    if (host === selfHost) {
+      continue;
+    }
+    candidates.push(`${prefix}${host}`);
+  }
+
+  sendStatus({ discovery: 'probing-lan' });
+  logClientEvent('network_probe_started', {
+    category: 'discovery',
+    localIp,
+    prefix,
+    timeoutMs: NETWORK_PROBE_TIMEOUT_MS,
+    concurrency: NETWORK_PROBE_CONCURRENCY,
+    candidateCount: candidates.length,
+  });
+
+  let nextIndex = 0;
+  let matchedServer = null;
+  const workerCount = Math.max(1, Math.min(NETWORK_PROBE_CONCURRENCY, candidates.length));
+
+  async function worker() {
+    while (!matchedServer && nextIndex < candidates.length && !isQuitting) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      const result = await probeServerHello(candidates[currentIndex]);
+      if (result && !matchedServer) {
+        matchedServer = result;
+      }
+    }
+  }
+
+  try {
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    if (matchedServer) {
+      applyDiscoveredServer(matchedServer, 'active-http-probe');
+    } else if (!serverInfo) {
+      sendStatus({ discovery: 'probe-miss' });
+      logClientEvent('network_probe_miss', {
+        category: 'discovery',
+        prefix,
+        candidateCount: candidates.length,
+      }, 'warn');
+    }
+  } finally {
+    networkProbeInFlight = false;
+  }
+}
+
+function scheduleNetworkProbeFallback() {
+  clearTimeout(networkProbeTimer);
+  networkProbeTimer = setTimeout(() => {
+    if (!serverInfo && !networkProbeInFlight && !isQuitting) {
+      scanLocalNetworkForServer().catch((error) => {
+        networkProbeInFlight = false;
+        log.warn('Active HTTP probing failed', error);
+      });
+    }
+  }, NETWORK_PROBE_DELAY_MS);
+}
+
 function createDiscoverySocket() {
+  if (udpSocket) {
+    return;
+  }
   udpSocket = dgram.createSocket('udp4');
 
   udpSocket.on('message', (msg, rinfo) => {
@@ -1312,24 +1488,13 @@ function createDiscoverySocket() {
         return;
       }
 
-      serverInfo = {
+      applyDiscoveredServer({
         serverIp: payload.serverIp || rinfo.address,
         wsPort: payload.wsPort || DEFAULT_WS_PORT,
         httpPort: payload.httpPort || DEFAULT_HTTP_PORT,
         approved: Boolean(payload.approved),
-      };
-      pendingPairingCode = payload.pairingCode || null;
-
-      sendStatus({
-        discovery: 'server-found',
-        approved: serverInfo.approved,
-        pairingCode: pendingPairingCode,
-      });
-      logStructured('Discovery ack received', serverInfo);
-
-      if (serverInfo.approved && !hasReusableWebSocket(serverInfo)) {
-        connectWebSocket();
-      }
+        pairingCode: payload.pairingCode || null,
+      }, 'udp-ack');
     } catch (error) {
       log.warn('Failed to parse UDP ack', error);
     }
@@ -1339,6 +1504,7 @@ function createDiscoverySocket() {
     udpSocket.setBroadcast(true);
     broadcastDiscovery();
     discoveryTimer = setInterval(broadcastDiscovery, DISCOVERY_INTERVAL_MS);
+    scheduleNetworkProbeFallback();
   });
 }
 
@@ -1410,6 +1576,10 @@ function scheduleReconnect() {
       connectWebSocket();
       return;
     }
+    if (resolveConfiguredServerEndpoint()) {
+      applyManualServerConnection(false, 'reconnect').catch((error) => log.warn('Configured server reconnect failed', error));
+      return;
+    }
     broadcastDiscovery();
   }, delay);
   sendStatus({ ws: 'reconnecting', retryInMs: delay });
@@ -1438,9 +1608,17 @@ function terminateWebSocketClient(targetWs, reason = 'previous') {
 }
 
 function handleCommand(payload) {
-  logStructured('Command received', {
+  lastCommandContext = {
     command: payload.command,
-    data: payload.data || null,
+    commandId: payload.commandId || null,
+    receivedAt: new Date().toISOString(),
+  };
+  logClientEvent('command_received', {
+    category: 'command',
+    command: payload.command,
+    commandId: payload.commandId || null,
+    syncId: payload.data?.syncId || null,
+    dataKeys: payload.data && typeof payload.data === 'object' ? Object.keys(payload.data) : [],
   });
   switch (payload.command) {
     case 'CHECK_ENV':
@@ -1546,6 +1724,7 @@ async function purgeCachedAsset(asset) {
     items: currentPlaybackState.items.filter((item) => item.originalSrc !== asset.src),
   };
   persistPlaybackSnapshot();
+  writeClientDiagnosticsSnapshot('purge-cached-asset');
   sendPlaylist();
   reportHeartbeatStatus();
 }
@@ -1570,7 +1749,8 @@ function connectWebSocket() {
   nextWs.on('open', () => {
     reconnectAttempts = 0;
     markWsActivity();
-    logStructured('WebSocket opened', {
+    logClientEvent('ws_opened', {
+      category: 'ws',
       serverIp: serverInfo.serverIp,
       wsPort: serverInfo.wsPort,
     });
@@ -1601,7 +1781,10 @@ function connectWebSocket() {
     try {
       const payload = JSON.parse(data.toString());
       if (payload.type === 'AUTH_OK') {
-        logStructured('WebSocket auth ok', payload);
+        logClientEvent('ws_auth_ok', {
+          category: 'ws',
+          serverTime: payload.serverTime || null,
+        });
         pendingPairingCode = null;
         sendStatus({ auth: 'ok', pairingCode: null });
         flushPendingStatusReports();
@@ -1610,7 +1793,9 @@ function connectWebSocket() {
         return;
       }
       if (payload.type === 'AUTH_REJECTED') {
-        logStructured('WebSocket auth rejected', payload, 'warn');
+        logClientEvent('ws_auth_rejected', {
+          category: 'ws',
+        }, 'warn');
         serverInfo.approved = false;
         sendStatus({ auth: 'rejected', approved: false, pairingCode: pendingPairingCode });
         return;
@@ -1624,7 +1809,8 @@ function connectWebSocket() {
   });
 
   nextWs.on('close', () => {
-    logStructured('WebSocket closed', {
+    logClientEvent('ws_closed', {
+      category: 'ws',
       serverIp: serverInfo?.serverIp || null,
       wsPort: serverInfo?.wsPort || null,
     }, 'warn');
@@ -1650,7 +1836,10 @@ function connectWebSocket() {
 
 function cleanup() {
   isQuitting = true;
+  writeClientDiagnosticsSnapshot('cleanup', true);
   clearInterval(discoveryTimer);
+  clearTimeout(networkProbeTimer);
+  clearTimeout(manualPollTimer);
   clearInterval(heartbeatTimer);
   stopWsWatchdog();
   clearInterval(maintenanceTimer);
@@ -1749,32 +1938,58 @@ app.whenReady().then(async () => {
   recoverPendingUpdateMarker();
   createWindow();
   restorePlaybackSnapshot();
+  writeClientDiagnosticsSnapshot('app-ready', true);
   log.info(`Client log file: ${log.transports.file.getFile().path}`);
-  createDiscoverySocket();
+  if (resolveConfiguredServerEndpoint()) {
+    applyManualServerConnection(false, 'startup').catch((error) => log.warn('Configured server startup connection failed', error));
+  } else {
+    createDiscoverySocket();
+  }
   scheduleNightlyRefresh();
-  sendStatus({ discovery: 'searching', ws: 'idle', mediaLibraryPath: localMediaLibraryRoot });
+  sendStatus({ discovery: resolveConfiguredServerEndpoint() ? 'configured-server' : 'searching', ws: 'idle', mediaLibraryPath: localMediaLibraryRoot });
 });
 
 ipcMain.on('player:ready', () => {
   logStructured('Renderer ready');
   sendPlaylist();
-  sendStatus({ mediaLibraryPath: localMediaLibraryRoot });
+  sendStatus({ mediaLibraryPath: localMediaLibraryRoot, discovery: resolveConfiguredServerEndpoint() ? 'configured-server' : 'searching' });
 });
 
 ipcMain.on('player:log', (_event, payload) => {
-  logStructured('Renderer event', payload || {});
+  const enrichedPayload = {
+    ...(payload || {}),
+    syncId: payload?.syncId || currentPlaylistSyncId || null,
+  };
+  logClientEvent('renderer_event', {
+    category: 'playback',
+    eventType: enrichedPayload?.type || null,
+    syncId: enrichedPayload.syncId,
+    playbackItem: enrichedPayload.originalSrc || enrichedPayload.src || null,
+    payload: enrichedPayload,
+  });
   sendWsJson({
     type: 'PLAYER_LOG',
-    eventType: payload?.type || null,
-    payload: payload || {},
+    syncId: enrichedPayload.syncId,
+    eventType: enrichedPayload?.type || null,
+    payload: enrichedPayload,
   });
 });
 
 ipcMain.on('player:error', (_event, error) => {
-  logStructured('Player reported error', error || {}, 'warn');
+  const enrichedError = {
+    ...(error || {}),
+    syncId: error?.syncId || currentPlaylistSyncId || null,
+  };
+  logClientEvent('renderer_error_reported', {
+    category: 'playback',
+    syncId: enrichedError.syncId,
+    errorType: enrichedError.type || null,
+    playbackItem: enrichedError.originalSrc || enrichedError.src || null,
+    message: enrichedError.message || null,
+  }, 'warn');
   sendWsJson({
     type: 'PLAYER_ERROR',
-    ...error,
+    ...enrichedError,
   }, 'Player error forwarded');
 });
 
@@ -1799,6 +2014,63 @@ ipcMain.handle('player:choose-media-folder', async () => {
   reportHeartbeatStatus();
   return { canceled: false, mediaLibraryPath: nextPath };
 });
+
+ipcMain.handle('player:get-connection-settings', async () => ({
+  manualServerAddress: manualServerConfig?.rawInput || '',
+  fixedServerAddress: fixedServerConfig?.rawInput || '',
+  connectionMode,
+  configuredServerAddress: resolveConfiguredServerEndpoint()?.displayAddress || null,
+  configuredServerSource: resolveConfiguredServerEndpoint()?.source || null,
+  localIp: resolvePreferredLocalIp(),
+  serverInfo,
+  connectionProbe: lastConnectionProbe,
+}));
+
+ipcMain.handle('player:test-server-connection', async (_event, rawAddress = '') => {
+  const endpoint = String(rawAddress || '').trim()
+    ? parseManualServerEndpoint(rawAddress, 'manual-test')
+    : resolveConfiguredServerEndpoint();
+  return testConfiguredServerConnection(endpoint);
+});
+
+ipcMain.handle('player:set-manual-server-address', async (_event, rawAddress) => {
+  const endpoint = parseManualServerEndpoint(rawAddress, 'manual-config');
+  if (!endpoint) {
+    return {
+      ok: false,
+      error: 'Server address is required',
+    };
+  }
+  const config = loadClientConfig();
+  config.manualServerAddress = endpoint.rawInput;
+  config.manualServerUpdatedAt = new Date().toISOString();
+  saveClientConfig(config);
+  applyClientConfig(config);
+  const connected = await applyManualServerConnection(true, 'manual-config-saved');
+  return {
+    ok: true,
+    connected,
+    manualServerAddress: endpoint.rawInput,
+    configuredServerAddress: endpoint.displayAddress,
+    connectionMode,
+    connectionProbe: lastConnectionProbe,
+  };
+});
+
+ipcMain.handle('player:enable-auto-discovery', async () => {
+  const config = loadClientConfig();
+  delete config.manualServerAddress;
+  config.manualServerUpdatedAt = new Date().toISOString();
+  saveClientConfig(config);
+  applyClientConfig(config);
+  restartAutomaticDiscovery();
+  return {
+    ok: true,
+    connectionMode,
+    configuredServerAddress: resolveConfiguredServerEndpoint()?.displayAddress || null,
+  };
+});
+
 
 ipcMain.handle('player:read-text-content', async (_event, src) => {
   const raw = String(src || '').trim();
@@ -1880,6 +2152,30 @@ ipcMain.handle('player:list-media-folder', async (_event, relativePath) => {
 
   await walk(targetRealPath);
   return results;
+});
+
+ipcMain.handle('player:export-diagnostics', async () => {
+  writeClientDiagnosticsSnapshot('export-requested', true);
+  latestDiagnosticsExportPath = diagnosticsSnapshotPath || clientLogDir;
+  return {
+    success: true,
+    logDir: clientLogDir,
+    diagnosticsSnapshotPath,
+    logFilePath: log.transports.file.getFile().path,
+    latestDiagnosticsExportPath,
+  };
+});
+
+ipcMain.handle('player:open-diagnostics-folder', async () => {
+  const targetPath = latestDiagnosticsExportPath || diagnosticsSnapshotPath || clientLogDir;
+  if (!targetPath) {
+    throw new Error('No diagnostics export available');
+  }
+  shell.showItemInFolder(targetPath);
+  return {
+    success: true,
+    targetPath,
+  };
 });
 
 app.on('render-process-gone', (_event, webContents, details) => {

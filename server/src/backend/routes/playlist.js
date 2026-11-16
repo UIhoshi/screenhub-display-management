@@ -1,4 +1,4 @@
-function registerPlaylistRoutes(server, options) {
+﻿function registerPlaylistRoutes(server, options) {
   const { app } = options;
 
   app.get('/api/playlist', (req, res) => {

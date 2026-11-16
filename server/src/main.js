@@ -1,4 +1,4 @@
-const fs = require('fs');
+﻿const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 const { app, Menu, Tray, nativeImage, shell, dialog } = require('electron');
@@ -11,8 +11,11 @@ const AdServer = require('./backend/server');
 
 let tray = null;
 let serverInstance = null;
+let serverLogDir = null;
 const AUTO_START_REG_PATH = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 const AUTO_START_NAME = 'AdvertisingScreenServer';
+const LOG_MAX_SIZE_BYTES = Number(process.env.AD_LOG_MAX_SIZE_BYTES || 5 * 1024 * 1024);
+const LOG_RETENTION_COUNT = Number(process.env.AD_LOG_RETENTION_COUNT || 10);
 const serverStorageRoot = process.env.AD_STORAGE_DIR
   ? path.resolve(process.env.AD_STORAGE_DIR)
   : app.isPackaged
@@ -53,8 +56,31 @@ function configureLogging() {
   const logDir = resolveWritableLogDir();
   log.transports.file.level = 'info';
   log.transports.file.resolvePathFn = () => path.join(logDir, 'server-main.log');
+  log.transports.file.maxSize = LOG_MAX_SIZE_BYTES;
   log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}';
   log.transports.console.format = '[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}';
+  pruneLogFiles(logDir, 'server-main', LOG_RETENTION_COUNT);
+  serverLogDir = logDir;
+  process.env.AD_ACTIVE_SERVER_LOG_DIR = logDir;
+  return logDir;
+}
+
+function pruneLogFiles(logDir, baseName, keepCount) {
+  try {
+    const entries = fs.readdirSync(logDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.startsWith(baseName))
+      .map((entry) => {
+        const fullPath = path.join(logDir, entry.name);
+        const stats = fs.statSync(fullPath);
+        return { fullPath, mtimeMs: stats.mtimeMs };
+      })
+      .sort((left, right) => right.mtimeMs - left.mtimeMs);
+    for (const stale of entries.slice(Math.max(keepCount, 1))) {
+      fs.rmSync(stale.fullPath, { force: true });
+    }
+  } catch (_error) {
+    // Log pruning is best-effort.
+  }
 }
 
 function logUnhandledError(label, error) {
@@ -216,7 +242,7 @@ app.whenReady()
         await ensureAutoStart();
       }
     }
-    serverInstance = new AdServer();
+    serverInstance = new AdServer({ logDir: serverLogDir });
     serverInstance.start();
     createTray();
     openAdminConsole();

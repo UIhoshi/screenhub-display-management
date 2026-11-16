@@ -1,4 +1,4 @@
-node_modules/
+﻿node_modules/
 .env
 client/.env
 server/.env
@@ -8,3 +8,10 @@ dist/
 out/
 release/
 *.log
+
+# Workspace-private logic, backups, and release staging
+tmp_repo_publish/
+project-backups/
+release-assets/
+tasks/
+*.zip
